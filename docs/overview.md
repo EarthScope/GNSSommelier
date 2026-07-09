@@ -290,7 +290,7 @@ Full detail: [Architecture](architecture.md) · [Class Reference](class-referenc
 | [COD](data-centers.md#cod) | Center for Orbit Determination in Europe (AIUB) | FTP | BIA, CLOCK, ERP, IONEX, ORBIT, SINEX, TROP |
 | [ESA](data-centers.md#esa) | European Space Agency / ESOC | FTP | BIA, CLOCK, ERP, IONEX, ORBIT, SINEX |
 | [EUREF](data-centers.md#euref) | EUREF Permanent GNSS Network (EPN) | HTTPS | SINEX |
-| [GFZ](data-centers.md#gfz) | GFZ German Research Centre for Geosciences | FTP | BIA, CLOCK, ERP, ORBIT, SINEX, TROP |
+| [GFZ](data-centers.md#gfz) | GFZ German Research Centre for Geosciences | SFTP | CLOCK, ERP, ORBIT, SINEX, TROP |
 | [GRGS](data-centers.md#grgs) | Groupe de Recherche de Géodésie Spatiale (CNES/CLS) | FTP | ATTOBX, BIA, CLOCK, ERP, ORBIT, SINEX |
 | [IGS](data-centers.md#igs) | International GNSS Service | FTP / HTTPS | ATTATX, ATTOBX, BIA, CLOCK, ERP, IONEX, ORBIT, RNX3\_BRDC, SINEX, TROP |
 | [JPL](data-centers.md#jpl) | NASA Jet Propulsion Laboratory | HTTPS | BIA, CLOCK, ERP, IONEX, ORBIT, SINEX, TROP |
@@ -310,4 +310,4 @@ Full detail: [Architecture](architecture.md) · [Class Reference](class-referenc
 - [PRIDE-PPPAR](https://pride.whu.edu.cn/pppar/)
 - [Vienna Mapping Functions](https://vmf.geo.tuwien.ac.at/)
 - [cloudpathlib](https://cloudpathlib.drivendata.org/) — cloud storage support
-- [fsspec](https://filesystem-spec.readthedocs.io/) — FTP/HTTPS connection pooling
+- [fsspec](https://filesystem-spec.readthedocs.io/) — FTP/FTPS/SFTP/HTTPS connection pooling

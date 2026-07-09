@@ -42,7 +42,7 @@ The table below lists every server endpoint configured across all centers.
 | ESA | `esa_ftp` | `ftp://gssc.esa.int` | FTP | None | ORBIT, CLOCK, ERP, BIA, IONEX, SINEX |
 | EUREF | `euref_https` | `https://epncb.oma.be` | HTTPS | None | SINEX (ETRS89 station coords) |
 | GA | `ga_s3` | `https://ga-gnss-products-v1.s3.amazonaws.com` | HTTPS (S3) | None | SINEX (APREF), ORBIT†, CLOCK†, ERP† |
-| GFZ | `gfz_ftp` | `ftp://ftp.gfz-potsdam.de` | FTP | None | ORBIT, CLOCK, ERP, SINEX, TROP |
+| GFZ | `gfz_sftp` | `sftp://anonymous@isdc-data.gfz.de` | SFTP | Anonymous (`anonymous` / `anonymous@isdc-data.gfz.de`) | ORBIT, CLOCK, ERP, SINEX, TROP |
 | GRGS | `grgs_ftp` | `ftp://ftpsedr.cls.fr` | FTP | None | ORBIT, CLOCK, ERP, BIA, SINEX, ATTOBX |
 | IGS | `ign_ftp` | `ftp://igs.ign.fr` | FTP | None | ORBIT, CLOCK, ERP, BIA, ATTOBX, IONEX, SINEX, TROP, RNX3_BRDC |
 | IGS | `igs_http` | `https://files.igs.org` | HTTPS | None | ANTEX (ATX), station logs |
@@ -148,10 +148,11 @@ Served over public AWS S3 / HTTPS.
 **GFZ German Research Centre for Geosciences (Potsdam)**
 Website: <https://www.gfz-potsdam.de/>
 
-GFZ produces precise GPS+GNSS orbits, clocks, ERP, and troposphere products
-(AC codes `GFZ` / `GBM`). FTP at `ftp.gfz-potsdam.de` (migrated from
-`isdcftp.gfz-potsdam.de`). GFZ does not publish bias files on its FTP endpoint —
-use CDDIS or KASI mirrors instead.
+GFZ publishes OPS-only precise orbit, clock, ERP, troposphere, and SINEX
+products at `isdc-data.gfz.de/gnss/products/`, organized into `final/`,
+`rapid/`, and `ultra/` weekly archives. The service is reachable via anonymous
+SFTP (`anonymous` / `anonymous@isdc-data.gfz.de`). GFZ does not publish bias
+files on this endpoint — use CDDIS or KASI mirrors instead.
 
 ---
 

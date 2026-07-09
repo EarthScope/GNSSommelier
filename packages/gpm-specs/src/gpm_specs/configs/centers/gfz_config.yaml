@@ -3,104 +3,128 @@ name: GFZ Potsdam
 website: https://www.gfz-potsdam.de/
 
 servers:
-  - id: gfz_ftp
-    name: GFZ FTP
-    hostname: "ftp://ftp.gfz-potsdam.de"
-    protocol: ftp
+  - id: gfz_sftp
+    name: GFZ ISDC SFTP
+    hostname: "sftp://anonymous:anonymous%40isdc-data.gfz.de@isdc-data.gfz.de"
+    protocol: sftp
     auth_required: false
-    description: GFZ FTP server (formerly isdcftp.gfz-potsdam.de / ISDC, migrated to ftp.gfz-potsdam.de)
+    description: >
+      GFZ ISDC GNSS archive via anonymous SFTP. Products are published under
+      /gnss/products/{final,rapid,ultra}/ and are OPS-only on this endpoint.
 
 products:
-  # ── Orbits ──────────────────────────────────────────────────────
-  - id: gfz_orbit
+  # ── Orbits (final) ──────────────────────────────────────────────
+  - id: gfz_orbit_final
     product_name: ORBIT
-    server_id: gfz_ftp
+    server_id: gfz_sftp
     available: true
-    description: Precise orbits
+    description: GFZ final precise orbits
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
       - {name: TTT, value: FIN}
-      - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
-      - {name: SMP, value: 05M}
       - {name: SMP, value: 15M}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}
 
-  # ── Clocks ──────────────────────────────────────────────────────
-  - id: gfz_clock
-    product_name: CLOCK
-    server_id: gfz_ftp
+  # ── Orbits (rapid) ──────────────────────────────────────────────
+  - id: gfz_orbit_rapid
+    product_name: ORBIT
+    server_id: gfz_sftp
     available: true
-    description: Precise clocks
+    description: GFZ rapid precise orbits
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
-      - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
-      - {name: SMP, value: 30S}
       - {name: SMP, value: 05M}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/rapid/w{GPSWEEK}/"}
 
-  # ── ERP ─────────────────────────────────────────────────────────
-  - id: gfz_erp
-    product_name: ERP
-    server_id: gfz_ftp
+  # ── Clocks (final) ──────────────────────────────────────────────
+  - id: gfz_clock_final
+    product_name: CLOCK
+    server_id: gfz_sftp
     available: true
-    description: Earth rotation parameters
+    description: GFZ final precise clocks
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
       - {name: TTT, value: FIN}
+      - {name: PPP, value: OPS}
+      - {name: SMP, value: 30S}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}
+
+  # ── Clocks (rapid) ──────────────────────────────────────────────
+  - id: gfz_clock_rapid
+    product_name: CLOCK
+    server_id: gfz_sftp
+    available: true
+    description: GFZ rapid precise clocks
+    parameters:
+      - {name: AAA, value: GFZ}
       - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
+      - {name: SMP, value: 30S}
+    directory: {pattern: "/gnss/products/rapid/w{GPSWEEK}/"}
+
+  # ── ERP (final) ─────────────────────────────────────────────────
+  - id: gfz_erp_final
+    product_name: ERP
+    server_id: gfz_sftp
+    available: true
+    description: GFZ final Earth rotation parameters
+    parameters:
+      - {name: AAA, value: GFZ}
+      - {name: TTT, value: FIN}
+      - {name: PPP, value: OPS}
       - {name: LEN, value: "07D"}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}
+
+  # ── ERP (rapid) ─────────────────────────────────────────────────
+  - id: gfz_erp_rapid
+    product_name: ERP
+    server_id: gfz_sftp
+    available: true
+    description: GFZ rapid Earth rotation parameters
+    parameters:
+      - {name: AAA, value: GFZ}
+      - {name: TTT, value: RAP}
+      - {name: PPP, value: OPS}
+      - {name: LEN, value: "01D"}
+    directory: {pattern: "/gnss/products/rapid/w{GPSWEEK}/"}
 
   # ── Biases ──────────────────────────────────────────────────────
   - id: gfz_bia
     product_name: BIA
-    server_id: gfz_ftp
+    server_id: gfz_sftp
     available: false
-    description: GFZ does not publish bias files on this FTP endpoint
+    description: GFZ does not publish bias files on this OPS archive endpoint
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}
 
   # ── Troposphere SINEX ──────────────────────────────────────────
   - id: gfz_trop
     product_name: TROP
-    server_id: gfz_ftp
+    server_id: gfz_sftp
     available: true
     description: GFZ troposphere SINEX (zenith total delay + horizontal gradients)
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
       - {name: TTT, value: FIN}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
       - {name: SMP, value: 05M}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}
 
   # ── SINEX weekly solutions ──────────────────────────────────────
   - id: gfz_sinex
     product_name: SINEX
-    server_id: gfz_ftp
+    server_id: gfz_sftp
     available: true
-    description: GFZ/GBM weekly station coordinate SINEX solutions
+    description: GFZ weekly station coordinate SINEX solutions
     parameters:
       - {name: AAA, value: GFZ}
-      - {name: AAA, value: GBM}
       - {name: TTT, value: FIN}
       - {name: PPP, value: OPS}
-      - {name: PPP, value: MGX}
-    directory: {pattern: "GNSS/products/final/w{GPSWEEK}/"}
+    directory: {pattern: "/gnss/products/final/w{GPSWEEK}/"}

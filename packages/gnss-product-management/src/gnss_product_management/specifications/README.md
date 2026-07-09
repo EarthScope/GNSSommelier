@@ -14,7 +14,7 @@ This module houses several critical sub-modules, each dedicated to defining a pa
 *   This module (and `product_spec.yaml` in `configs/products/`) defines the abstract types of GNSS products we process (e.g., `ORBIT`, `CLOCK`, `IONEX`). For each product type, it specifies its general characteristics, what formats it can take, and any high-level constraints. It tells us *what* a particular product conceptually is.
 
 ### `remote/`: The Remote Resource Directory
-*   This module defines how remote data sources (like IGS, CDDIS, GFZ) are specified. It covers details like server hostnames, protocols (FTP, HTTP), authentication requirements, and the specific product offerings from each analysis center. It tells us *where* to find products remotely.
+*   This module defines how remote data sources (like IGS, CDDIS, GFZ) are specified. It covers details like server hostnames, protocols (FTP, FTPS, SFTP, HTTP), authentication requirements, and the specific product offerings from each analysis center. It tells us *where* to find products remotely.
 
 ### `local/`: The Local Archive Layout
 *   This module defines how downloaded GNSS products are organized and stored on our local disk. It specifies directory structures, temporal categories (daily, static), and logical collections of products, linking them to physical paths. It tells us *where* to store products locally.

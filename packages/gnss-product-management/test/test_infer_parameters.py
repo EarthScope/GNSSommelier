@@ -198,7 +198,7 @@ class TestProductDefaultInfer:
             "1",
             "default",
             AAA="GFZ",
-            PPP="MGX",
+            PPP="OPS",
             TTT="RAP",
             YYYY="2025",
             DDD="100",
@@ -209,7 +209,7 @@ class TestProductDefaultInfer:
             CNT="ERP",
             FMT="ERP",
         )
-        result = infer_from_regex(regex, "GFZ0MGXRAP_20251000000_01D_01D_ERP.ERP.gz", params)
+        result = infer_from_regex(regex, "GFZ0OPSRAP_20251000000_01D_01D_ERP.ERP.gz", params)
         assert result is not None
         values = {p.name: p.value for p in result}
         assert values["AAA"] == "GFZ"

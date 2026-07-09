@@ -108,14 +108,14 @@ CANDIDATES: list[CandidateServer] = [
         expected_aaa=["WUM", "WMC"],
     ),
     CandidateServer(
-        id="gfz_ftp",
-        name="GFZ ISDC FTP (current)",
-        hostname="ftp://isdcftp.gfz-potsdam.de",
-        protocol="ftp",
+        id="gfz_sftp",
+        name="GFZ ISDC SFTP (current)",
+        hostname="sftp://anonymous@isdc-data.gfz.de",
+        protocol="sftp",
         auth_required=False,
         description="GFZ products. Already in gfz_config.yaml.",
-        directory_template="gnss/products/final/w{GPSWEEK}/",
-        expected_aaa=["GFZ", "GBM"],
+        directory_template="/gnss/products/final/w{GPSWEEK}/",
+        expected_aaa=["GFZ"],
     ),
     # ── New candidates ────────────────────────────────────────────────────
     CandidateServer(

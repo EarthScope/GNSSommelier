@@ -124,7 +124,7 @@ All 18 configured centers. See [docs/data-centers.md](docs/data-centers.md) for 
 | **COD** | [AIUB, Univ. of Bern](https://www.aiub.unibe.ch/research/gnss/) | `ftp.aiub.unibe.ch` | FTP |
 | **ESA** | [ESA/ESOC](https://navigation.esa.int/) | `gssc.esa.int` | FTP |
 | **EUREF** | [EUREF Permanent GNSS Network](https://epncb.oma.be/) | `epncb.oma.be` | HTTPS |
-| **GFZ** | [GFZ Potsdam](https://www.gfz-potsdam.de/) | `ftp.gfz-potsdam.de` | FTP |
+| **GFZ** | [GFZ Potsdam](https://www.gfz-potsdam.de/) | `isdc-data.gfz.de` | SFTP |
 | **GRGS** | [CNES/CLS](https://igsac-cnes.cls.fr/) | `ftpsedr.cls.fr` | FTP |
 | **IGS** | [IGS combined products](https://igs.org/) | `igs.ign.fr` / `files.igs.org` | FTP / HTTPS |
 | **JPL** | [NASA JPL](https://sideshow.jpl.nasa.gov/) | `sideshow.jpl.nasa.gov` | HTTPS |

@@ -7,7 +7,7 @@ from analysis center servers.
 
 - Resolves IGS long filenames from a date and product name using the parameter
   catalog (`TTT`, `AAA`, `YYYY`, `DDD`, `GPSWEEK`, etc.)
-- Queries FTP, FTPS, and HTTP servers at registered analysis centers, lists
+- Queries FTP, FTPS, SFTP, and HTTP servers at registered analysis centers, lists
   directories, and matches filenames by regex
 - Downloads and decompresses `.gz` files into a structured local workspace or
   cloud storage bucket
@@ -196,8 +196,8 @@ client = GNSSClient.from_defaults(
 ```
 
 CDDIS (NASA) enforces strict anonymous FTPS connection limits — keep
-`max_connections` at 2–4 for CDDIS queries. FTP centers (COD, WUM, GFZ)
-generally tolerate 6–8. When a limit is exceeded the pool blocks until a
+`max_connections` at 2–4 for CDDIS queries. Less restrictive FTP / SFTP
+centers (COD, WUM, GFZ) generally tolerate 6–8. When a limit is exceeded the pool blocks until a
 slot is free; no requests are dropped.
 
 ---
@@ -251,7 +251,7 @@ client = GNSSClient(product_registry=registry, workspace=workspace)
 | CDDIS | NASA GSFC | FTPS | clock, GIM, leap seconds, navigation, orbit |
 | COD | AIUB / Univ. Bern | FTP | bias, clock, ERP, GIM, orbit |
 | ESA | ESA/ESOC | FTP | clock, GIM, orbit |
-| GFZ | GFZ Potsdam | FTP | clock, orbit |
+| GFZ | GFZ Potsdam | SFTP | clock, ERP, orbit, SINEX, TROP |
 | IGS | IGS combined products (files.igs.org) | FTP / HTTPS | ATX, bias, clock, ERP, navigation, OBX, orbit |
 | VMF | TU Wien | HTTPS | orography, VMF1, VMF3 |
 | WUM | Wuhan University (WHU) | FTP | bias, clock, ERP, GIM, leap seconds, navigation, OBX, orbit, sat_parameters |

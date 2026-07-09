@@ -32,9 +32,9 @@ def sort_by_protocol(targets: list[SearchTarget]) -> list[SearchTarget]:
 
     Returns:
         Sorted list of targets, with ``FILE`` / ``LOCAL`` first,
-        then ``FTP`` / ``FTPS``, then ``HTTP`` / ``HTTPS``.
+        then ``FTP`` / ``FTPS`` / ``SFTP``, then ``HTTP`` / ``HTTPS``.
     """
-    protocol_sort_order = ["FILE", "LOCAL", "FTP", "FTPS", "HTTP", "HTTPS"]
+    protocol_sort_order = ["FILE", "LOCAL", "FTP", "FTPS", "SFTP", "HTTP", "HTTPS"]
     return sorted(
         targets,
         key=lambda rq: (
