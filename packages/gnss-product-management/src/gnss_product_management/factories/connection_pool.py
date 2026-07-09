@@ -156,8 +156,9 @@ class ConnectionPool:
         """Combine hostname base with a relative directory.
 
         Behaviour differs by protocol: ``file`` uses :func:`os.path.join`,
-        ``http``/``https`` concatenates with forward slashes, and ``ftp``
-        treats the directory as an already-absolute server path.
+        ``http``/``https`` concatenates with forward slashes, and other
+        remote protocols (FTP / FTPS / SFTP / etc.) treat the directory as
+        an already-resolved server path.
 
         Args:
             directory: Relative directory path (or absolute for FTP).
@@ -169,7 +170,7 @@ class ConnectionPool:
             return os.path.join(self.hostname, directory)
         if self.protocol in ("http", "https"):
             return f"{self.hostname.rstrip('/')}/{directory.lstrip('/')}"
-        # FTP: directory is already an absolute server path
+        # Remote protocol path is already resolved relative to the server root
         return directory
 
 

@@ -8,6 +8,7 @@ dependencies = [
     "fsspec>=2024.0",
     "gpm-specs",
     "julian>=0.14",
+    "paramiko>=3.5",
     "pydantic>=2.0",
     "pyyaml>=6.0",
     "requests>=2.32.5",

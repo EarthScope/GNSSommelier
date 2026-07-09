@@ -67,7 +67,7 @@ Each file defines a single IGS analysis center:
 
 - **`id` / `name`** — Short and long identifiers
 - **`description` / `website`** — Background and documentation link
-- **`servers`** — FTP/HTTP endpoints with hostnames, protocols, and
+- **`servers`** — FTP/FTPS/SFTP/HTTP endpoints with hostnames, protocols, and
   authentication details
 - **`products`** — Every product the center offers, with `id`, `parameters`,
   and `directory` templates needed to construct valid remote file paths
@@ -77,10 +77,11 @@ provider.
 
 ### Authentication
 
-Most centers (COD, ESA, GFZ, WUM) serve products over anonymous FTP and
-require no credentials. **CDDIS** (NASA GSFC) has required authenticated
-FTPS access since November 2020. Credentials are read automatically from
-`~/.netrc`:
+Most centers (COD, ESA, WUM) serve products over anonymous FTP and require
+no credentials. GFZ serves GNSS products over anonymous SFTP
+(`anonymous` / `anonymous@isdc-data.gfz.de`). **CDDIS** (NASA GSFC) has
+required authenticated FTPS access since November 2020. Credentials are read
+automatically from `~/.netrc`:
 
 ```
 machine cddis.nasa.gov login <earthdata_username> password <earthdata_password>

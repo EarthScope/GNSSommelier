@@ -2,7 +2,7 @@
 Tests: LEO satellite (GRACE) products via SearchPlanner.
 
 Products: LEO_L1B
-Centers : GFZ (FTP)
+Centers : GFZ (SFTP)
 """
 
 from __future__ import annotations
@@ -44,10 +44,10 @@ class TestGFZLEOExpansion:
         queries = _get_remote_queries(gfz_qf, test_date, "LEO_L1B")
         assert len(queries) > 0
 
-    def test_leo_server_protocol_is_ftp(self, gfz_qf, test_date) -> None:
+    def test_leo_server_protocol_is_sftp(self, gfz_qf, test_date) -> None:
         queries = _get_remote_queries(gfz_qf, test_date, "LEO_L1B")
         for q in queries:
-            assert q.server.protocol.lower() == "ftp"
+            assert q.server.protocol.lower() == "sftp"
 
     def test_leo_directory_not_empty(self, gfz_qf, test_date) -> None:
         queries = _get_remote_queries(gfz_qf, test_date, "LEO_L1B")

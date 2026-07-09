@@ -91,7 +91,7 @@ class TestClassify:
                 {"AAA": "COD", "TTT": "RAP", "CNT": "CLK", "FMT": "CLK"},
             ),
             (
-                "GFZ0MGXRAP_20251000000_01D_01D_ERP.ERP.gz",
+                "GFZ0OPSRAP_20251000000_01D_01D_ERP.ERP.gz",
                 "ERP",
                 {"AAA": "GFZ", "TTT": "RAP", "CNT": "ERP", "FMT": "ERP"},
             ),
