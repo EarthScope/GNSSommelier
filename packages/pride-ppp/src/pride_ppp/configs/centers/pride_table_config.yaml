@@ -124,3 +124,11 @@ products:
     parameters:
       - {name: RESOLUTION, value: "1x1"}
     directory: {pattern: "table/"}
+
+  - id: pride_orography
+    product_name: OROGRAPHY
+    server_id: pride_github
+    available: true
+    description: Ellipsoidal terrain height grid (VMF1)
+    parameters: []
+    directory: {pattern: "table/"}
