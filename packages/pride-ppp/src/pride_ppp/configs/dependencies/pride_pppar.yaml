@@ -89,3 +89,7 @@ dependencies:
   - spec: OROGRAPHY_1X1
     required: true
     description: Ellipsoidal terrain height grid (1x1)
+
+  - spec: OROGRAPHY
+    required: true
+    description: Ellipsoidal terrain height grid (VMF1)

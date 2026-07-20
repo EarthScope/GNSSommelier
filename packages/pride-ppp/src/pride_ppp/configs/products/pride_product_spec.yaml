@@ -74,3 +74,15 @@ products:
         constraints:
           RESOLUTION: "1x1"
         variant: orography
+
+  OROGRAPHY:
+    description: >
+      Ellipsoidal terrain height grid (VMF1) bundled with PRIDE-PPPAR.
+      Required by PrepareTables regardless of the selected mapping function.
+
+    formats:
+
+      - format: TABLE
+        version: "1"
+        file_templates:
+          - "orography_ell"
