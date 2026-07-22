@@ -74,7 +74,7 @@ def test_metadata_returns_stations(station_query) -> None:
         json=API_RESPONSE,
         status=200,
     )
-    stations = station_query.within(62.0, -140.0, 500.0).centers("ERT").on(DATE).metadata()
+    stations = station_query.within(62.0, -140.0, 500.0).networks("ERT").on(DATE).metadata()
     assert len(stations) == 2
     codes = {s.site_code for s in stations}
     assert codes == {"FAIR", "WHIT"}
@@ -88,7 +88,7 @@ def test_metadata_skips_bad_records(station_query) -> None:
         json=API_RESPONSE,
         status=200,
     )
-    stations = station_query.within(62.0, -140.0, 500.0).centers("ERT").on(DATE).metadata()
+    stations = station_query.within(62.0, -140.0, 500.0).networks("ERT").on(DATE).metadata()
     # BAD record (missing lat) should be silently skipped
     assert all(s.site_code != "BAD" for s in stations)
 
@@ -102,7 +102,7 @@ def test_metadata_partial_failure_returns_partial_results(station_query) -> None
         body=Exception("connection refused"),
     )
     # Should return empty list (ERT failed) but NOT raise
-    stations = station_query.within(62.0, -140.0, 500.0).centers("ERT").on(DATE).metadata()
+    stations = station_query.within(62.0, -140.0, 500.0).networks("ERT").on(DATE).metadata()
     assert stations == []
 
 
@@ -131,7 +131,7 @@ def test_metadata_temporal_filter(station_query) -> None:
     )
     stations = (
         station_query.within(62.0, -140.0, 500.0)
-        .centers("ERT")
+        .networks("ERT")
         .on(DATE)  # 2025-01-15
         .metadata()
     )

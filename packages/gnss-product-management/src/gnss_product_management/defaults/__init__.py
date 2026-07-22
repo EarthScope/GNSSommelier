@@ -37,12 +37,14 @@ DefaultNetworkRegistry = GNSSNetworkRegistry.from_config(NETWORKS_RESOURCE_DIR)
 DefaultNetworkRegistry.bind(DefaultProductEnvironment)
 
 # Register concrete protocol implementations.
+from gnss_product_management.defaults.catalog_protocols import (  # noqa: E402
+    GAProtocol,
+    IGSProtocol,
+    NOAACORSProtocol,
+    RBMCProtocol,
+)
 from gnss_product_management.defaults.earthscope.earthscope import EarthScopeProtocol  # noqa: E402
-from gnss_product_management.defaults.ga.ga import GAProtocol  # noqa: E402
-from gnss_product_management.defaults.igs.igs import IGSProtocol  # noqa: E402
 from gnss_product_management.defaults.m3g.m3g_protocol import M3GNetworkProtocol  # noqa: E402
-from gnss_product_management.defaults.noaa.cors import NOAACORSProtocol  # noqa: E402
-from gnss_product_management.defaults.rbmc.rbmc import RBMCProtocol  # noqa: E402
 
 DefaultNetworkRegistry.register_protocol(NOAACORSProtocol())
 DefaultNetworkRegistry.register_protocol(EarthScopeProtocol())

@@ -9,7 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import cast
 
-from gnss_product_management.factories.models import FoundResource
+from gnss_product_management.factories.models import (
+    FoundResource,
+    found_resources_from_targets,
+)
 from gnss_product_management.factories.ranking import (
     sort_by_preferences,
     sort_by_protocol,
@@ -332,42 +335,7 @@ class ProductQuery:
             self._source_ids,
         )
 
-        ranked = self._ranked_targets()
-
-        results: list[FoundResource] = []
-        seen: dict[tuple[str, str], bool] = {}
-        for rq in ranked:
-            hostname = rq.server.hostname
-            filename: str = (rq.product.filename.value or "") if rq.product.filename else ""  # type: ignore[union-attr]
-            key: tuple[str, str] = (hostname, filename)
-            if key in seen:
-                continue
-            seen[key] = True
-            params = {p.name: p.value for p in rq.product.parameters if p.value is not None}
-            protocol = (rq.server.protocol or "").upper()
-            is_local = protocol in ("FILE", "LOCAL")
-            if is_local:
-                uri = str(
-                    Path(hostname)
-                    / (rq.directory.value or rq.directory.pattern)  # type: ignore[union-attr]
-                    / filename
-                )
-            else:
-                proto = (rq.server.protocol or "ftp").lower()
-                uri = (
-                    f"{proto}://{hostname}/{rq.directory.value or rq.directory.pattern}/{filename}"  # type: ignore[union-attr]
-                )
-            r = FoundResource(
-                product=rq.product.name,
-                source="local" if is_local else "remote",
-                uri=uri,
-                parameters=params,
-                date=self._date,
-            )
-            r._query = rq
-            results.append(r)
-
-        return results
+        return found_resources_from_targets(self._ranked_targets(), self._date)
 
     def download(
         self,

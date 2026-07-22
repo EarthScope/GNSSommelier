@@ -7,7 +7,7 @@ catalogs (YAML/JSON/GeoJSON), and reports stations that are missing lat/lon.
 
 Networks audited:
   - CORS  (NOAA)           — cors_stations.yaml
-  - IGS   (multi-center)   — igs_stations.yaml + igs_stations.json
+  - IGS   (multi-center)   — igs_stations.yaml
   - RBMC  (IBGE Brazil)    — rbmc_stations.yaml
   - IBGE  (FTP)            — live listing of RINEX 3 files
   - GeoNet (NZ)            — live S3 listing of RINEX files
@@ -36,12 +36,7 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 CONFIGS = ROOT / "packages" / "gpm-specs" / "src" / "gpm_specs" / "configs" / "networks"
 GPM_DEFAULTS = (
-    ROOT
-    / "packages"
-    / "gnss-product-management"
-    / "src"
-    / "gnss_product_management"
-    / "defaults"
+    ROOT / "packages" / "gnss-product-management" / "src" / "gnss_product_management" / "defaults"
 )
 
 # ──────────────────────────────────────────────────────────────────────
@@ -60,63 +55,27 @@ def load_yaml_stations(path: Path) -> dict[str, dict]:
     return out
 
 
-def load_igs_json(path: Path) -> dict[str, dict]:
-    """Return {site_code: {lat, lon}} from the IGS API JSON export."""
-    with open(path) as f:
-        stations = json.load(f)
+def _stations_from_features(features: list[dict], source: str) -> dict[str, dict]:
+    """Return {site_code: {lat, lon, source}} from a list of GeoJSON features."""
     out: dict[str, dict] = {}
-    for s in stations:
-        code = s.get("name", "")[:4].lower()
-        llh = s.get("llh", [None, None, None])
-        if code and llh[0] is not None:
-            out[code] = {"lat": llh[0], "lon": llh[1], "source": "igs_stations.json"}
+    for feat in features:
+        coords = feat.get("geometry", {}).get("coordinates")
+        nine_char = feat.get("properties", {}).get("id", "")
+        code = nine_char[:4].lower() if nine_char else ""
+        if code and coords and len(coords) >= 2:
+            out[code] = {"lat": coords[1], "lon": coords[0], "source": source}
     return out
 
 
-def load_m3g_cache(cache_dir: Path) -> dict[str, dict]:
-    """Return {site_code: {lat, lon, network}} from all M3G GeoJSON caches."""
+def load_m3g_cache(cache_file: Path) -> dict[str, dict]:
+    """Return {site_code: {lat, lon}} from the consolidated M3G GeoJSON cache."""
     out: dict[str, dict] = {}
-    if not cache_dir.exists():
+    if not cache_file.exists():
         return out
-    for path in sorted(cache_dir.glob("*.json")):
-        network = path.stem
-        with open(path) as f:
-            features = json.load(f)
-        for feat in features:
-            geom = feat.get("geometry", {})
-            coords = geom.get("coordinates")
-            props = feat.get("properties", {})
-            nine_char = props.get("id", "")
-            code = nine_char[:4].lower() if nine_char else ""
-            if code and coords and len(coords) >= 2:
-                out[code] = {
-                    "lat": coords[1],
-                    "lon": coords[0],
-                    "source": f"m3g_cache/{network}",
-                }
-    return out
-
-
-def load_cors_csv(path: Path) -> dict[str, dict]:
-    """Return {site_code: {lat, lon}} from the NOAA CORS CSV."""
-    import csv
-
-    out: dict[str, dict] = {}
-    with open(path, encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            code = row.get("SITEID", "").lower()
-            x = row.get("x")
-            y = row.get("y")
-            if code and x and y:
-                try:
-                    out[code] = {
-                        "lat": float(y),
-                        "lon": float(x),
-                        "source": "CORS_CSV",
-                    }
-                except ValueError:
-                    pass
+    with open(cache_file) as f:
+        cache = json.load(f)
+    for network, features in cache.items():
+        out.update(_stations_from_features(features, f"m3g_cache/{network}"))
     return out
 
 
@@ -220,7 +179,7 @@ def fetch_m3g_network_stations(network_id: str, max_pages: int = 40) -> dict[str
 
 def fetch_all_m3g_stations(
     m3g_manifest_path: Path,
-    cache_dir: Path,
+    cache_file: Path,
 ) -> dict[str, dict]:
     """Fetch/load stations for ALL 95 M3G networks.
 
@@ -236,25 +195,15 @@ def fetch_all_m3g_stations(
 
     all_stations: dict[str, dict] = {}
     cached_networks = set()
+    cache: dict[str, list] = {}
 
-    # Load from cache first
-    if cache_dir.exists():
-        for path in cache_dir.glob("*.json"):
-            cached_networks.add(path.stem)
-            with open(path) as f:
-                features = json.load(f)
-            for feat in features:
-                geom = feat.get("geometry", {})
-                coords = geom.get("coordinates")
-                props = feat.get("properties", {})
-                nine_char = props.get("id", "")
-                code = nine_char[:4].lower() if nine_char else ""
-                if code and coords and len(coords) >= 2:
-                    all_stations[code] = {
-                        "lat": coords[1],
-                        "lon": coords[0],
-                        "source": f"m3g_cache/{path.stem}",
-                    }
+    # Load from the consolidated cache first
+    if cache_file.exists():
+        with open(cache_file) as f:
+            cache = json.load(f)
+        for network, features in cache.items():
+            cached_networks.add(network)
+            all_stations.update(_stations_from_features(features, f"m3g_cache/{network}"))
 
     # Fetch remaining from API
     fetched = 0
@@ -273,28 +222,26 @@ def fetch_all_m3g_stations(
             all_stations.update(stations)
             fetched += 1
 
-            # Cache the result
+            # Store as GeoJSON features in the consolidated cache
             if stations:
-                cache_path = cache_dir / f"{safe}.json"
-                # We need to store as GeoJSON features for the cache
-                features_to_cache = []
-                for code, info in stations.items():
-                    features_to_cache.append(
-                        {
-                            "type": "Feature",
-                            "geometry": {
-                                "type": "Point",
-                                "coordinates": [info["lon"], info["lat"]],
-                            },
-                            "properties": {"id": code.upper() + "0000"},
-                        }
-                    )
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                with open(cache_path, "w") as f:
-                    json.dump(features_to_cache, f)
+                cache[safe] = [
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [info["lon"], info["lat"]],
+                        },
+                        "properties": {"id": code.upper() + "0000"},
+                    }
+                    for code, info in stations.items()
+                ]
         except Exception as e:
             failed.append(nid)
             logger.warning("Failed to fetch %s: %s", nid, e)
+
+    if fetched:
+        with open(cache_file, "w") as f:
+            json.dump(cache, f)
 
     logger.info(
         "M3G: loaded from %d cached networks, fetched %d live, %d failed",
@@ -324,24 +271,18 @@ def main() -> None:
     cors_yaml = load_yaml_stations(CONFIGS / "cors_stations.yaml")
     igs_yaml = load_yaml_stations(CONFIGS / "igs_stations.yaml")
     rbmc_yaml = load_yaml_stations(CONFIGS / "rbmc_stations.yaml")
-    igs_json = load_igs_json(GPM_DEFAULTS / "igs" / "igs_stations.json")
-    cors_csv = load_cors_csv(
-        GPM_DEFAULTS / "noaa" / "NOAA CORS Network (sm scale).csv"
-    )
 
     for label, catalog in [
         ("CORS YAML", cors_yaml),
         ("IGS YAML", igs_yaml),
         ("RBMC YAML", rbmc_yaml),
-        ("IGS JSON", igs_json),
-        ("CORS CSV", cors_csv),
     ]:
         before = len(master_index)
         master_index.update(catalog)
         print(f"  Loaded {label}: {len(catalog)} stations (+{len(master_index) - before} new)")
 
     # ── Load M3G cache ──────────────────────────────────────────────
-    m3g_cache = load_m3g_cache(GPM_DEFAULTS / "m3g" / "_cache")
+    m3g_cache = load_m3g_cache(GPM_DEFAULTS / "m3g" / "m3g_cache.json")
     before = len(master_index)
     master_index.update(m3g_cache)
     print(f"  Loaded M3G cache: {len(m3g_cache)} stations (+{len(master_index) - before} new)")
@@ -360,8 +301,8 @@ def main() -> None:
     # CORS — already fully indexed via YAML, just verify
     server_stations["CORS"] = set(cors_yaml.keys())
 
-    # IGS — from YAML + JSON
-    server_stations["IGS"] = set(igs_yaml.keys()) | set(igs_json.keys())
+    # IGS — from YAML
+    server_stations["IGS"] = set(igs_yaml.keys())
 
     # RBMC — from YAML
     server_stations["RBMC"] = set(rbmc_yaml.keys())
@@ -376,7 +317,7 @@ def main() -> None:
     print("\nFetching M3G networks (95 total, using cache where available)...")
     m3g_all = fetch_all_m3g_stations(
         CONFIGS / "m3g_networks.yaml",
-        GPM_DEFAULTS / "m3g" / "_cache",
+        GPM_DEFAULTS / "m3g" / "m3g_cache.json",
     )
     # Update master index with any new M3G stations
     before = len(master_index)
@@ -408,7 +349,9 @@ def main() -> None:
         total = len(codes)
         indexed = total - net_missing
         pct = (indexed / total * 100) if total else 0
-        print(f"  {network:15s}: {total:5d} stations, {indexed:5d} indexed ({pct:.1f}%), {net_missing:4d} MISSING")
+        print(
+            f"  {network:15s}: {total:5d} stations, {indexed:5d} indexed ({pct:.1f}%), {net_missing:4d} MISSING"
+        )
 
     print()
     total_unique = len(all_server_codes)
@@ -441,7 +384,7 @@ def main() -> None:
     output_path = ROOT / "dev" / "missing_station_coordinates.txt"
     with open(output_path, "w") as f:
         f.write("# Non-EarthScope stations MISSING lat/lon in spatial indexes\n")
-        f.write(f"# Generated by audit_station_coordinates.py\n")
+        f.write("# Generated by audit_station_coordinates.py\n")
         f.write(f"# Total missing: {total_missing}\n\n")
 
         f.write(f"{'site_code':<12s} {'networks'}\n")

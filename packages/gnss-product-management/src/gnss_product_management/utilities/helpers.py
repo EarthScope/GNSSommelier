@@ -10,11 +10,9 @@ Contains low-level utilities used across the package:
 """
 
 import datetime
-import gzip
 import hashlib
 import itertools
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -36,37 +34,6 @@ def hash_file(path) -> str:
         for chunk in iter(lambda: f.read(1 << 16), b""):
             h.update(chunk)
     return f"sha256:{h.hexdigest()}"
-
-
-def decompress_gzip(file_path: Path, dest_dir: Path | None = None) -> Path | None:
-    """Decompress a gzip file and remove the original.
-
-    Args:
-        file_path: Path to the ``.gz`` file.
-        dest_dir: Destination directory for the decompressed file.
-            Defaults to the same directory as *file_path*.
-
-    Returns:
-        Path to the decompressed file, or ``None`` on failure.
-    """
-    if not file_path.exists():
-        return None
-
-    out_path = file_path.with_suffix("")
-    if dest_dir is not None:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        out_path = dest_dir / out_path.name
-
-    try:
-        with gzip.open(file_path, "rb") as f_in, open(out_path, "wb") as f_out:
-            f_out.write(f_in.read())
-    except (EOFError, OSError) as exc:
-        logger.error("Failed to decompress %s: %s", file_path, exc)
-        out_path.unlink(missing_ok=True)
-        return None
-
-    file_path.unlink(missing_ok=True)
-    return out_path
 
 
 def _ensure_datetime(date: datetime.date | datetime.datetime) -> datetime.datetime:

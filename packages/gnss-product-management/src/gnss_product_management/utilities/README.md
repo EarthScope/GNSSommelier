@@ -11,7 +11,6 @@ This file is a collection of fundamental, low-level utility functions that are c
 Key functions include:
 
 *   **`hash_file()`**: Essential for data integrity! This computes the SHA-256 hash of any file, crucial for verifying that a downloaded product hasn't been tampered with (used extensively by the `lockfile/` module).
-*   **`decompress_gzip()`**: Handles the common task of decompressing `.gz` files, ensuring our downloaded data is ready for use (employed by the `ResourceFetcher`).
 *   **`_ensure_datetime()`**: Standardizes `datetime` objects to be timezone-aware UTC, preventing headaches when dealing with various time formats.
 *   **`_listify()`**: A simple yet effective helper to ensure that a variable is always treated as a list, simplifying API interactions.
 *   **`expand_dict_combinations()`**: A powerful function that takes a dictionary of lists and generates every possible combination of values, vital for building exhaustive query permutations (used by the `QueryFactory`).

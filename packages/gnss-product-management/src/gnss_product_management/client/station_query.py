@@ -8,7 +8,6 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from typing import Literal
 
 import tqdm
@@ -18,7 +17,10 @@ from gnss_product_management.environments.gnss_station_network import (
     GNSSStation,
     PointRadius,
 )
-from gnss_product_management.factories.models import FoundResource
+from gnss_product_management.factories.models import (
+    FoundResource,
+    found_resources_from_targets,
+)
 from gnss_product_management.factories.ranking import sort_by_protocol
 from gnss_product_management.factories.remote_transport import WormHole
 from gnss_product_management.factories.search_planner import SearchPlanner
@@ -47,7 +49,7 @@ class StationQuery:
         results = (
             client.station_query()
             .within(64.9, -147.5, 150.0)
-            .centers("ERT")
+            .networks("ERT")
             .on(date)
             .rinex_version("3")
             .search()
@@ -78,7 +80,7 @@ class StationQuery:
     # ── Builder methods ───────────────────────────────────────────────
 
     def within(self, lat: float, lon: float, radius_km: float) -> StationQuery:
-        """Set a point-radius spatial filter (last-wins with :meth:`in_bbox`).
+        """Set a point-radius spatial filter.
 
         Args:
             lat: Centre latitude in decimal degrees.
@@ -235,10 +237,10 @@ class StationQuery:
     def _validate_for_execution(self) -> None:
         """Raise ``ValueError`` if the query is not ready to execute."""
         if self._station_codes is None and self._spatial_filter is None:
-            raise ValueError("Call .within(), .in_bbox(), or .from_stations() before executing.")
+            raise ValueError("Call .within() or .from_stations() before executing.")
         if self._station_codes is not None and not self._network_ids:
             raise ValueError(
-                ".from_stations() requires .centers() to be set — "
+                ".from_stations() requires .networks() to be set — "
                 "station codes can overlap across networks."
             )
 
@@ -247,12 +249,6 @@ class StationQuery:
         if self._network_ids:
             return list(self._network_ids)
         return list(self._network_env.network_ids)
-
-    def _get_local_resource_ids(self) -> list[str] | None:
-        """Return local resource IDs to search, or ``None`` to search all."""
-        if self._local_resource_ids:
-            return list(self._local_resource_ids)
-        return None
 
     # ── Execution methods ─────────────────────────────────────────────
 
@@ -405,7 +401,7 @@ class StationQuery:
             raise ValueError(".on(date) is required before searching")
 
         network_ids = self._effective_network_ids()
-        local_resource_ids = self._get_local_resource_ids()
+        local_resource_ids = list(self._local_resource_ids) if self._local_resource_ids else None
 
         stations = self.metadata()
         if not stations:
@@ -489,7 +485,7 @@ class StationQuery:
 
         Returns:
             Ranked list of :class:`FoundResource` objects with
-            ``product="RINEX_OBS"`` and ``parameters["SSSS"]`` set.
+            ``product="RINEX_<variant>"`` and ``parameters["SSSS"]`` set.
             Within each station: local before remote, then RINEX version
             descending.
 
@@ -500,40 +496,7 @@ class StationQuery:
         if not ranked:
             return []
 
-        results: list[FoundResource] = []
-        seen: dict[tuple[str, str], bool] = {}
-        for rq in ranked:
-            if rq.product.filename is None or rq.product.filename.value is None:
-                continue
-            hostname = rq.server.hostname
-            filename = rq.product.filename.value
-            key = (hostname, filename)
-            if key in seen:
-                continue
-            seen[key] = True
-
-            params = {
-                p.name: (p.value.upper() if p.name == "SSSS" and p.value else p.value)
-                for p in rq.product.parameters
-                if p.value is not None
-            }
-            protocol = (rq.server.protocol or "").upper()
-            is_local = protocol in ("FILE", "LOCAL")
-            dir_val = rq.directory.value or rq.directory.pattern
-            if is_local:
-                uri = str(Path(hostname) / dir_val / filename)
-            else:
-                uri = f"{hostname.rstrip('/')}/{dir_val.strip('/')}/{filename}"
-
-            fr = FoundResource(
-                product="RINEX_OBS",
-                source="local" if is_local else "remote",
-                uri=uri,
-                parameters=params,
-                date=self._date,
-            )
-            fr._query = rq
-            results.append(fr)
+        results = found_resources_from_targets(ranked, self._date)
 
         # Sort: station code ascending (alphabetical, case-insensitive);
         # within each station local before remote, then RINEX version descending.

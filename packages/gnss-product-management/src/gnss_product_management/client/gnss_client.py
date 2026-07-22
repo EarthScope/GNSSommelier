@@ -165,7 +165,7 @@ class GNSSClient:
             stations = (
                 client.station_query()
                 .within(64.9, -147.5, 150.0)
-                .centers("ERT")
+                .networks("ERT")
                 .on(date)
                 .metadata()
             )

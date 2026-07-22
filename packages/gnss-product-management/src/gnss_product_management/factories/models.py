@@ -13,6 +13,7 @@ from gnss_product_management.utilities.paths import AnyPath
 
 if TYPE_CHECKING:
     from gnss_product_management.lockfile import DependencyLockFile
+    from gnss_product_management.specifications.remote.resource import SearchTarget
 
 
 class FoundResource(BaseModel):
@@ -95,6 +96,59 @@ class FoundResource(BaseModel):
     def downloaded(self) -> bool:
         """``True`` if the file has been downloaded and exists on disk."""
         return self.local_path is not None and Path(self.local_path).exists()
+
+
+def found_resources_from_targets(
+    ranked: list[SearchTarget],
+    date: datetime.datetime | None,
+) -> list[FoundResource]:
+    """Convert expanded search targets into deduplicated :class:`FoundResource` objects.
+
+    Shared by ``ProductQuery.search`` and ``StationQuery.search``.  Targets are
+    deduplicated by ``(hostname, filename)`` preserving *ranked* order; targets
+    without a resolved filename are dropped.  The ``SSSS`` station-code
+    parameter is uppercased for display.
+    """
+    results: list[FoundResource] = []
+    seen: set[tuple[str, str]] = set()
+    for rq in ranked:
+        if rq.product.filename is None or rq.product.filename.value is None:
+            continue
+        hostname = rq.server.hostname
+        filename = rq.product.filename.value
+        key = (hostname, filename)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        params = {
+            p.name: (p.value.upper() if p.name == "SSSS" and p.value else p.value)
+            for p in rq.product.parameters
+            if p.value is not None
+        }
+        is_local = (rq.server.protocol or "").upper() in ("FILE", "LOCAL")
+        dir_val = rq.directory.value or rq.directory.pattern
+        if is_local:
+            uri = str(Path(hostname) / dir_val / filename)
+        else:
+            # Center specs give bare hostnames; network specs include the scheme.
+            base = (
+                hostname
+                if "://" in hostname
+                else f"{(rq.server.protocol or 'ftp').lower()}://{hostname}"
+            )
+            uri = f"{base.rstrip('/')}/{dir_val.strip('/')}/{filename}"
+
+        fr = FoundResource(
+            product=rq.product.name,
+            source="local" if is_local else "remote",
+            uri=uri,
+            parameters=params,
+            date=date,
+        )
+        fr._query = rq
+        results.append(fr)
+    return results
 
 
 class Resolution(BaseModel):

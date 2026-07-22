@@ -147,6 +147,10 @@ class SearchPlanner:
     ) -> list[Product]:
         """Narrow product templates by substituting parameter constraints.
 
+        Constraints whose name is absent from a template are appended as new
+        parameters rather than ignored — station queries rely on this to pin
+        ``SSSS``/``CCC`` on RINEX templates that do not declare them.
+
         Args:
             templates: List of product templates to narrow.
             parameter_constraints: User constraints on metadata fields.  Unset

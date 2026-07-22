@@ -189,7 +189,7 @@ class TestValidation:
 
     def test_metadata_with_from_stations_no_centers_raises(self) -> None:
         q = _query().from_stations("FAIR").on(DATE)
-        with pytest.raises(ValueError, match="centers"):
+        with pytest.raises(ValueError, match="networks"):
             q.metadata()
 
     def test_metadata_with_spatial_filter_and_no_centers_is_valid(self) -> None:
