@@ -170,10 +170,11 @@ class ProductQuery:
         center ID.
 
         Calling :meth:`sources` with no arguments is an error; omit the
-        call entirely to search all available sources.
+        call entirely — or pass ``"all"`` explicitly — to search all
+        available sources.
 
         Args:
-            *ids: One or more source identifiers.
+            *ids: One or more source identifiers, or ``"all"``.
 
         Returns:
             ``self`` for chaining.
@@ -388,7 +389,7 @@ class ProductQuery:
             A ``(local_ids, remote_ids)`` tuple, each ``None`` when empty
             (meaning "all of that type").
         """
-        if self._source_ids is None:
+        if self._source_ids is None or "all" in self._source_ids:
             return None, None
 
         local_ids: list[str] = []

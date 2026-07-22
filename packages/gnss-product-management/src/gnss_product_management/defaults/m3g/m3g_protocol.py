@@ -110,14 +110,26 @@ def _fetch_network_geojson(network_id: str) -> list[dict]:
     return all_features
 
 
+# Parsed once and shared across all ~95 M3GNetworkProtocol instances — the
+# consolidated cache file is several MB and re-reading it per network made
+# broad queries pay the JSON-parse cost ~95 times.
+_cache_data: dict[str, list[dict]] | None = None
+
+
 def _load_cache() -> dict[str, list[dict]]:
-    if _CACHE_FILE.exists():
-        with open(_CACHE_FILE) as f:
-            return json.load(f)
-    return {}
+    global _cache_data
+    if _cache_data is None:
+        if _CACHE_FILE.exists():
+            with open(_CACHE_FILE) as f:
+                _cache_data = json.load(f)
+        else:
+            _cache_data = {}
+    return _cache_data
 
 
 def _save_cache(data: dict[str, list[dict]]) -> None:
+    global _cache_data
+    _cache_data = data
     _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(_CACHE_FILE, "w") as f:
         json.dump(data, f, separators=(",", ":"))
@@ -196,6 +208,27 @@ class M3GNetworkProtocol(NetworkProtocol):
             )
             for s in matches
         ]
+
+    def station_catalog(self) -> list[GNSSStation] | None:
+        """Enumerate stations from the bundled cache only — never hits the API."""
+        features = _load_cache().get(self._network_id)
+        if features is None:
+            return None
+        stations: list[GNSSStation] = []
+        for feat in features:
+            coords = feat.get("geometry", {}).get("coordinates")
+            nine_char = feat.get("properties", {}).get("id", "")
+            if not nine_char or not coords or len(coords) < 2:
+                continue
+            stations.append(
+                GNSSStation(
+                    site_code=nine_char[:4].lower(),
+                    lat=coords[1],
+                    lon=coords[0],
+                    network_id=self._network_id,
+                )
+            )
+        return stations
 
     def parse_spatial_query_response(self, response: object) -> list[GNSSStation] | None:
         return None

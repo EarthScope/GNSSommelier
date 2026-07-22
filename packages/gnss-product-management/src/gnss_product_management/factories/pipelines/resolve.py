@@ -202,15 +202,11 @@ class ResolvePipeline:
             logger.warning("RINEX_OBS dep has neither 'stations' nor 'station_spatial'.")
             return missing
 
-        # Center priority: dep.constraints["AAA"] > run(centers=...) > all registered.
+        # Center priority: dep.constraints["AAA"] > run(centers=...) > unset.
+        # Left unset, StationQuery scopes itself to the networks that host
+        # the matched stations.
         dep_center = dep.constraints.get("AAA")
-        effective_centers = (
-            [dep_center]
-            if dep_center
-            else list(centers)
-            if centers
-            else self._network_env.registry.network_ids
-        )
+        effective_centers = [dep_center] if dep_center else list(centers) if centers else None
 
         sq = (
             StationQuery(
@@ -220,8 +216,9 @@ class ResolvePipeline:
             )
             .on(date)
             .rinex_version(dep.rinex_version)
-            .networks(*effective_centers)
         )
+        if effective_centers:
+            sq = sq.networks(*effective_centers)
 
         if dep.stations is not None:
             sq = sq.from_stations(*dep.stations)

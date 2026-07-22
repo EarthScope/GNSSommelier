@@ -60,6 +60,15 @@ class YAMLCatalogProtocol(NetworkProtocol):
         matches: np.ndarray = self._rtree.query(buffer)
         return [self._stations[i] for i in matches.tolist()]
 
+    def _to_station(self, s: dict) -> GNSSStation:
+        return GNSSStation(
+            site_code=s["site_code"],
+            lat=s["lat"],
+            lon=s["lon"],
+            network_id=self.id,
+            data_center=s.get("server_id") if self.pin_data_center else None,
+        )
+
     def radius_spatial_query(
         self,
         date: datetime.datetime,
@@ -67,16 +76,10 @@ class YAMLCatalogProtocol(NetworkProtocol):
         lon: float,
         radius_km: float,
     ) -> list[GNSSStation] | None:
-        return [
-            GNSSStation(
-                site_code=s["site_code"],
-                lat=s["lat"],
-                lon=s["lon"],
-                network_id=self.id,
-                data_center=s.get("server_id") if self.pin_data_center else None,
-            )
-            for s in self._within(lat, lon, radius_km)
-        ]
+        return [self._to_station(s) for s in self._within(lat, lon, radius_km)]
+
+    def station_catalog(self) -> list[GNSSStation]:
+        return [self._to_station(s) for s in self._stations]
 
 
 class IGSProtocol(YAMLCatalogProtocol):

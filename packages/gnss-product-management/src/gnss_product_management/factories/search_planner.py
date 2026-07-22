@@ -376,52 +376,66 @@ class SearchPlanner:
         )
         self.update_templates_with_date_fields(product_templates, date)
 
-        # Pin version and collect station codes from both sources.
-        parameter_constraints: dict[str, str | list[str]] = {"V": version}
-        codes: list[str] = []
-        if stations:
-            codes.extend(s.site_code for s in stations)
-        if station_ids:
-            codes.extend(_listify(station_ids))
-        if codes:
-            parameter_constraints["SSSS"] = codes
-        if country_codes:
-            parameter_constraints["CCC"] = _listify(country_codes)
+        # Group station codes by owning network.  Codes without a network_id
+        # (explicit *station_ids*, or stations from live-only protocols) are
+        # searched across every selected network.
+        unscoped_codes: list[str] = _listify(station_ids)
+        codes_by_network: dict[str, list[str]] = {}
+        for s in stations or []:
+            if s.network_id:
+                codes_by_network.setdefault(s.network_id, []).append(s.site_code)
+            else:
+                unscoped_codes.append(s.site_code)
+        all_codes = [c for group in codes_by_network.values() for c in group] + unscoped_codes
 
-        narrowed = self.narrow_parameters(product_templates, parameter_constraints)
+        def _constraints(codes: list[str]) -> dict[str, str | list[str]]:
+            out: dict[str, str | list[str]] = {"V": version}
+            if codes:
+                out["SSSS"] = list(codes)
+            if country_codes:
+                out["CCC"] = _listify(country_codes)
+            return out
 
         out: list[SearchTarget] = []
 
-        # Local workspace resources.
+        # Local workspace resources — search every station code.
         local_out = self.build_queries_from_planner(
-            templates=narrowed,
+            templates=self.narrow_parameters(product_templates, _constraints(all_codes)),
             date=date,
             query_planner=self._workspace,
             resource_selection=_listify(local_resource_ids),
         )
         out.extend(local_out)
 
-        # GNSS network resources.
+        # GNSS network resources — one pass per network, restricted to the
+        # station codes that network actually hosts.  Networks with no
+        # matched station are skipped entirely instead of building targets
+        # that the data-center filter would discard.
         if self._gnss_network_registry is not None:
-            network_out = self.build_queries_from_planner(
-                templates=narrowed,
-                date=date,
-                query_planner=self._gnss_network_registry,
-                resource_selection=_listify(network_ids),
-            )
-            # Build server→network lookup from the registry so the data-
-            # center filter only applies within the same network.
-            server_to_network: dict[str, str] = {}
+            selection = _listify(network_ids)
             for nid in self._gnss_network_registry.resource_ids:
-                cfg = self._gnss_network_registry.config_for(nid)
-                for srv in cfg.servers:
-                    server_to_network[srv.id] = nid
-            network_out = self._filter_by_data_center(
-                network_out,
-                stations or [],
-                server_to_network,
-            )
-            out.extend(network_out)
+                if selection and nid not in selection:
+                    continue
+                network_codes = codes_by_network.get(nid, []) + unscoped_codes
+                if all_codes and not network_codes:
+                    continue
+                network_targets = self.build_queries_from_planner(
+                    templates=self.narrow_parameters(
+                        product_templates, _constraints(network_codes)
+                    ),
+                    date=date,
+                    query_planner=self._gnss_network_registry,
+                    resource_selection=[nid],
+                )
+                # Data-center routing is applied per network batch: every
+                # target here belongs to *nid*, so the server→network map
+                # is unambiguous even though M3G networks share server IDs.
+                server_to_network = {
+                    srv.id: nid for srv in self._gnss_network_registry.config_for(nid).servers
+                }
+                out.extend(
+                    self._filter_by_data_center(network_targets, stations or [], server_to_network)
+                )
 
         # Replace any unresolved placeholders with their regex patterns.
         for rq in out:

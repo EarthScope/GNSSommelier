@@ -126,6 +126,16 @@ class NetworkProtocol(Protocol):
         """
         return None
 
+    def station_catalog(self) -> list[GNSSStation] | None:
+        """Return every station this network hosts, if enumerable offline.
+
+        Backs the registry's station→network index so explicit station-code
+        queries can be routed to the right network without touching every
+        server.  Return ``None`` when the network can only be queried live
+        (e.g. EarthScope).
+        """
+        return None
+
     def parse_spatial_query_response(self, response: Any) -> list[GNSSStation] | None:
         """Parse the raw response from a spatial query into a list of stations."""
         return None
@@ -157,6 +167,7 @@ class GNSSNetworkRegistry:
         self._login_calls: dict[str, Callable] = {}
         self._response_adapters: dict[str, Callable] = {}
         self._parameter_catalog: ParameterCatalog | None = None
+        self._station_index: dict[str, list[GNSSStation]] | None = None
 
     def load_config(self, config_path: Path | str) -> None:
         """Load a single network config from *config_path*."""
@@ -174,6 +185,7 @@ class GNSSNetworkRegistry:
             f"Protocol ID {protocol.id!r} must match a loaded config"
         )
         self._network_protocols[protocol.id] = protocol
+        self._station_index = None  # rebuilt lazily on next lookup
         logger.debug("Registered protocol for network: %s", protocol.id)
 
     # ── Loading ───────────────────────────────────────────────────────
@@ -315,6 +327,42 @@ class GNSSNetworkRegistry:
     def get_protocol(self, network_id: str) -> NetworkProtocol | None:
         """Return the registered :class:`NetworkProtocol` for *network_id*, or ``None``."""
         return self._network_protocols.get(network_id)
+
+    @property
+    def station_index(self) -> dict[str, list[GNSSStation]]:
+        """Lazily-built map of ``site_code`` → catalog entries across all protocols.
+
+        Aggregates :meth:`NetworkProtocol.station_catalog` from every
+        registered protocol that can enumerate its stations offline.  A code
+        maps to one entry per hosting network.  Live-only networks (no
+        catalog) do not appear.
+        """
+        if self._station_index is None:
+            index: dict[str, list[GNSSStation]] = {}
+            for protocol in self._network_protocols.values():
+                catalog = protocol.station_catalog()
+                if not catalog:
+                    continue
+                for station in catalog:
+                    index.setdefault(station.site_code.lower(), []).append(station)
+            self._station_index = index
+            logger.debug("Built station index: %d unique site codes", len(index))
+        return self._station_index
+
+    def lookup_stations(
+        self,
+        site_code: str,
+        network_ids: list[str] | None = None,
+    ) -> list[GNSSStation]:
+        """Return catalog entries for *site_code*, optionally scoped to *network_ids*.
+
+        Returns an empty list when the code is not in any offline catalog —
+        the station may still exist on a live-query network.
+        """
+        entries = self.station_index.get(site_code.lower(), [])
+        if network_ids:
+            entries = [s for s in entries if s.network_id in network_ids]
+        return entries
 
     def has_station_query(self, network_id: str) -> bool:
         return network_id in self._station_queries

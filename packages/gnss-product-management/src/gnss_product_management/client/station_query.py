@@ -97,9 +97,11 @@ class StationQuery:
     def from_stations(self, *codes: str) -> StationQuery:
         """Restrict the query to explicit 4-char station codes.
 
-        Requires :meth:`centers` to also be set — station codes can
-        overlap across networks.  Enforced at :meth:`metadata` /
-        :meth:`search` / :meth:`download` time.
+        Codes are resolved to their host network(s) via the bundled station
+        catalogs, so :meth:`networks` is optional.  It is still required for
+        codes that no offline catalog knows — e.g. stations only reachable
+        through a live-query network such as EarthScope — and useful to
+        disambiguate codes that exist in several networks.
 
         Args:
             *codes: One or more 4-char SSSS station codes.
@@ -114,11 +116,14 @@ class StationQuery:
     def networks(self, *ids: str) -> StationQuery:
         """Restrict the query to these network/center IDs.
 
-        Optional for spatial queries; required when :meth:`from_stations`
-        is set.  Mirrors ``ProductQuery.sources()``.
+        Optional: spatial and station-code queries are automatically scoped
+        to the networks that host the matched stations.  Pass ``"all"`` to
+        explicitly search every registered network.  Mirrors
+        ``ProductQuery.sources()``.
 
         Args:
-            *ids: One or more registered network IDs (e.g. ``"ERT"``).
+            *ids: One or more registered network IDs (e.g. ``"ERT"``),
+                or ``"all"``.
 
         Returns:
             New :class:`StationQuery` instance.
@@ -238,15 +243,14 @@ class StationQuery:
         """Raise ``ValueError`` if the query is not ready to execute."""
         if self._station_codes is None and self._spatial_filter is None:
             raise ValueError("Call .within() or .from_stations() before executing.")
-        if self._station_codes is not None and not self._network_ids:
-            raise ValueError(
-                ".from_stations() requires .networks() to be set — "
-                "station codes can overlap across networks."
-            )
 
     def _effective_network_ids(self) -> list[str]:
-        """Return network IDs to query: explicit list or all registered."""
-        if self._network_ids:
+        """Return network IDs to query: explicit list or all registered.
+
+        The sentinel ``"all"`` behaves like an unset filter — every
+        registered network is queried.
+        """
+        if self._network_ids and "all" not in self._network_ids:
             return list(self._network_ids)
         return list(self._network_env.network_ids)
 
@@ -269,6 +273,13 @@ class StationQuery:
         self._validate_for_execution()
 
         all_stations: list[GNSSStation] = []
+
+        if self._station_codes is not None:
+            all_stations = self._resolve_station_codes()
+            if self._date is not None:
+                all_stations = self._apply_temporal_filter(all_stations, self._date)
+            all_stations.sort(key=lambda s: s.site_code)
+            return all_stations
 
         for network_id in self._effective_network_ids():
             try:
@@ -293,10 +304,7 @@ class StationQuery:
                     break  # only handle the first server's auth
 
             try:
-                if self._station_codes is not None:
-                    stations = self._query_by_codes(network_id)
-                else:
-                    stations = self._query_spatial(network_id)
+                stations = self._query_spatial(network_id)
             except Exception as exc:
                 logger.warning("Station metadata query failed for network %r: %s", network_id, exc)
                 continue
@@ -334,13 +342,46 @@ class StationQuery:
         logger.debug("No spatial query handler registered for network %r; skipping.", network_id)
         return []
 
-    def _query_by_codes(self, network_id: str) -> list[GNSSStation]:
-        """Return stub :class:`GNSSStation` objects for explicit station codes."""
+    def _resolve_station_codes(self) -> list[GNSSStation]:
+        """Resolve explicit station codes to catalog entries via the station index.
+
+        Codes found in a bundled catalog get real coordinates, network
+        membership, and data-center routing.  Codes no catalog knows fall
+        back to per-network stubs when :meth:`networks` was set explicitly
+        (live-query networks like ERT have no offline catalog); otherwise
+        they raise, since searching every network for an unknown code is
+        exactly the fan-out this index exists to avoid.
+        """
         assert self._station_codes is not None
-        return [
-            GNSSStation(site_code=code, lat=0.0, lon=0.0, network_id=network_id)
-            for code in self._station_codes
-        ]
+        network_ids = (
+            list(self._network_ids)
+            if self._network_ids and "all" not in self._network_ids
+            else None
+        )
+
+        resolved: list[GNSSStation] = []
+        unresolved: list[str] = []
+        for code in self._station_codes:
+            entries = self._network_env.lookup_stations(code, network_ids=network_ids)
+            if entries:
+                resolved.extend(entries)
+            else:
+                unresolved.append(code)
+
+        if unresolved:
+            if network_ids:
+                resolved.extend(
+                    GNSSStation(site_code=code, lat=0.0, lon=0.0, network_id=nid)
+                    for code in unresolved
+                    for nid in network_ids
+                )
+            else:
+                raise ValueError(
+                    f"Station code(s) {unresolved} not found in any bundled network "
+                    "catalog. Pass .networks() explicitly to search specific "
+                    "networks (required for live-query networks like ERT)."
+                )
+        return resolved
 
     @staticmethod
     def _apply_temporal_filter(
@@ -406,6 +447,16 @@ class StationQuery:
         stations = self.metadata()
         if not stations:
             return []
+
+        # Narrow the remote search to networks that actually host a matched
+        # station — with ~100 registered networks, registering filesystems
+        # and building targets for the other ~95 is pure waste.  Stations
+        # without a network_id keep the full set as a safety net.
+        station_networks = {s.network_id for s in stations}
+        if None not in station_networks:
+            narrowed = [nid for nid in network_ids if nid in station_networks]
+            if narrowed:
+                network_ids = narrowed
 
         self._register_filesystems(network_ids)
 
