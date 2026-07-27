@@ -58,7 +58,7 @@ products:
 
   # ── Orography 1x1 ──────────────────────────────────────────────
   - id: vmf_orography_1x1
-    product_name: OROGRAPHY
+    product_name: OROGRAPHY_1X1
     server_id: vmf_https
     available: true
     description: Ellipsoidal terrain height grid (1x1) for VMF interpolation
@@ -68,7 +68,7 @@ products:
 
   # ── Orography 5x5 ──────────────────────────────────────────────
   - id: vmf_orography_5x5
-    product_name: OROGRAPHY
+    product_name: OROGRAPHY_5X5
     server_id: vmf_https
     available: true
     description: Ellipsoidal terrain height grid (5x5) for VMF interpolation
