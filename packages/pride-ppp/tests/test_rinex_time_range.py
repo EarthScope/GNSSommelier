@@ -79,6 +79,8 @@ class TestRinexGetTimeRange:
         assert end == datetime(2025, 8, 15, 23, 59, 59, 999999)
 
     def test_missing_time_of_first_obs_raises(self, tmp_path):
-        path = _write(tmp_path, "no_start.25o", "                                    END OF HEADER\n")
+        path = _write(
+            tmp_path, "no_start.25o", "                                    END OF HEADER\n"
+        )
         with pytest.raises(ValueError):
             rinex_get_time_range(path)
