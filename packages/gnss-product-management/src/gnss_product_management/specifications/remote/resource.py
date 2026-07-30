@@ -45,6 +45,11 @@ class ResourceProductSpec(BaseModel):
         description: Human-readable description.
         parameters: Parameter overrides (values pinned by this center).
         directory: Directory template for this product.
+        checksum: Expected ``sha256:<hex>`` of the served file, as
+            downloaded (i.e. before any decompression).  Only meaningful
+            for entries that resolve to exactly one file — static tables
+            pinned to an immutable source.  When set, downloads and cache
+            hits are validated against it.
     """
 
     id: str
@@ -55,6 +60,7 @@ class ResourceProductSpec(BaseModel):
     description: str | None = None
     parameters: list[Parameter]
     directory: PathTemplate
+    checksum: str | None = None
 
 
 class ResourceSpec(BaseModel):
@@ -98,11 +104,15 @@ class SearchTarget(BaseModel):
         product: The product being queried.
         server: The server endpoint to query.
         directory: Directory path template for the product.
+        checksum: Expected ``sha256:<hex>`` of the served file, carried
+            from the resource spec.  ``None`` when the source declares no
+            checksum.
     """
 
     product: Product
     server: Server
     directory: PathTemplate
+    checksum: str | None = None
 
     def narrow(self) -> "SearchTarget":
         """Substitute already-known parameter values into directory/filename patterns.

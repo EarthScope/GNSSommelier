@@ -361,3 +361,42 @@ class TestPackageVersion:
         v = get_package_version()
         # At minimum it should be a semver-ish string
         assert "." in v
+
+
+# ── ResolvePipeline lockfile-entry validation ─────────────────────
+
+
+class TestLockfileEntryValidation:
+    """_lockfile_entry_is_valid guards the ResolvePipeline fast path:
+    aggregate entries carry no hash, so the per-file sidecar written at
+    download time provides the hash to validate against."""
+
+    def test_entry_with_matching_sidecar_is_valid(self, tmp_path: Path) -> None:
+        from gnss_product_management.factories.pipelines.resolve import ResolvePipeline
+
+        sink = _make_product_file(tmp_path)
+        write_lock_product(build_lock_product(sink=sink, url="", name="ORBIT"))
+        entry = LockProduct(name="ORBIT", url="", sink=str(sink))
+        assert ResolvePipeline._lockfile_entry_is_valid(entry)
+
+    def test_entry_without_sidecar_only_needs_existence(self, tmp_path: Path) -> None:
+        from gnss_product_management.factories.pipelines.resolve import ResolvePipeline
+
+        sink = _make_product_file(tmp_path)
+        entry = LockProduct(name="ORBIT", url="", sink=str(sink))
+        assert ResolvePipeline._lockfile_entry_is_valid(entry)
+
+    def test_entry_with_missing_file_is_invalid(self, tmp_path: Path) -> None:
+        from gnss_product_management.factories.pipelines.resolve import ResolvePipeline
+
+        entry = LockProduct(name="ORBIT", url="", sink=str(tmp_path / "gone.SP3"))
+        assert not ResolvePipeline._lockfile_entry_is_valid(entry)
+
+    def test_entry_corrupted_after_sidecar_is_invalid(self, tmp_path: Path) -> None:
+        from gnss_product_management.factories.pipelines.resolve import ResolvePipeline
+
+        sink = _make_product_file(tmp_path)
+        write_lock_product(build_lock_product(sink=sink, url="", name="ORBIT"))
+        sink.write_text("corrupted after the sidecar was written")
+        entry = LockProduct(name="ORBIT", url="", sink=str(sink))
+        assert not ResolvePipeline._lockfile_entry_is_valid(entry)

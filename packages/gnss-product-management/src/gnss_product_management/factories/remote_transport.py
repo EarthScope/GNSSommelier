@@ -19,7 +19,7 @@ from gnss_product_management.lockfile.operations import (
 )
 from gnss_product_management.specifications.products.product import PathTemplate
 from gnss_product_management.specifications.remote.resource import SearchTarget
-from gnss_product_management.utilities.helpers import decompress_gzip
+from gnss_product_management.utilities.helpers import decompress_gzip, hash_file
 from gnss_product_management.utilities.paths import AnyPath, as_path
 
 logger = logging.getLogger(__name__)
@@ -261,25 +261,34 @@ class WormHole:
         return updated
 
     @staticmethod
-    def _validate_cached_or_evict(path: AnyPath) -> bool:
-        """Validate a cached file against its sidecar lockfile hash.
+    def _validate_cached_or_evict(path: AnyPath, checksum: str | None = None) -> bool:
+        """Validate a cached file against a declared or sidecar hash.
 
-        Returns ``True`` when the file can be trusted: either its SHA-256
-        matches the sidecar ``_lock.json`` written at download time, or no
-        sidecar exists to validate against.  On a hash mismatch the file
-        and its stale sidecar are deleted so the caller re-downloads.
+        When *checksum* is given (declared in the resource spec) it is
+        authoritative: the file's SHA-256 must match it, regardless of
+        what the sidecar says — this catches caches poisoned before the
+        sidecar was written.  Otherwise the file is validated against
+        the sidecar ``_lock.json`` written at download time; a file with
+        no sidecar is trusted.  On mismatch the file and its sidecar are
+        deleted so the caller re-downloads.
 
         Args:
             path: Existing cached file to validate.
+            checksum: Expected ``sha256:<hex>`` from the resource spec.
 
         Returns:
             ``True`` if the cached file is usable, ``False`` if it was
             evicted and must be re-downloaded.
         """
-        lock = get_lock_product(path)
-        if lock is None or validate_lock_product(lock, mode=HashMismatchMode.STRICT):
-            return True
-        logger.warning("Cached file failed hash validation, evicting: %s", path)
+        if checksum is not None:
+            if hash_file(path) == checksum:
+                return True
+            logger.warning("Cached file does not match declared checksum, evicting: %s", path)
+        else:
+            lock = get_lock_product(path)
+            if lock is None or validate_lock_product(lock, mode=HashMismatchMode.STRICT):
+                return True
+            logger.warning("Cached file failed hash validation, evicting: %s", path)
         as_path(str(path) + "_lock.json").unlink(missing_ok=True)
         path.unlink(missing_ok=True)
         return False
@@ -294,11 +303,12 @@ class WormHole:
         """Synchronously download matched files for one search target.
 
         Skips the download if the destination file already exists,
-        is non-empty, and matches its sidecar lockfile hash (when one
-        exists) — a corrupt cached file is evicted and re-downloaded.
-        Downloaded files are verified against the remote size (when the
-        server reports one) and retried once on mismatch, so truncated
-        transfers are never cached.
+        is non-empty, and matches the spec-declared checksum (when the
+        resource spec pins one) or its sidecar lockfile hash — a corrupt
+        cached file is evicted and re-downloaded.  Downloaded files are
+        verified against the remote size (when the server reports one)
+        and the declared checksum, retried once on mismatch, so
+        truncated or corrupt transfers are never cached.
 
         Args:
             query: The resolved search target with filename value.
@@ -334,11 +344,13 @@ class WormHole:
                 return decompressed_path
 
         # Skip download if the file already exists, is non-empty, and
-        # passes sidecar hash validation.
+        # passes checksum/sidecar hash validation.  A declared checksum
+        # describes the file as served, so it only applies to the
+        # non-decompressed destination path.
         if (
             destination_path.exists()
             and destination_path.stat().st_size > 0
-            and self._validate_cached_or_evict(destination_path)
+            and self._validate_cached_or_evict(destination_path, query.checksum)
         ):
             logger.debug("Skipping download, file already exists: %s", destination_path)
             return destination_path
@@ -372,20 +384,26 @@ class WormHole:
                 return None
             if result is None:
                 return None
-            if remote_size is None:
-                break
+            # Truncated/corrupt transfers must never be left on disk where
+            # a later run would treat them as satisfied dependencies.
             local_size = result.stat().st_size
-            if local_size == remote_size:
+            if remote_size is not None and local_size != remote_size:
+                logger.warning(
+                    "Size mismatch for %s: %d bytes local vs %d remote — deleting%s",
+                    result,
+                    local_size,
+                    remote_size,
+                    ", retrying" if attempt == 0 else "",
+                )
+            elif query.checksum is not None and hash_file(result) != query.checksum:
+                logger.warning(
+                    "Checksum mismatch for %s: expected %s — deleting%s",
+                    result,
+                    query.checksum,
+                    ", retrying" if attempt == 0 else "",
+                )
+            else:
                 break
-            # Truncated/corrupt transfer: never leave it on disk where a
-            # later run would treat it as a satisfied dependency.
-            logger.warning(
-                "Size mismatch for %s: %d bytes local vs %d remote — deleting%s",
-                result,
-                local_size,
-                remote_size,
-                ", retrying" if attempt == 0 else "",
-            )
             result.unlink(missing_ok=True)
             result = None
 

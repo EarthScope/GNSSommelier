@@ -23,8 +23,20 @@ from gnss_product_management.lockfile.operations import (
     get_lock_product_path,
     write_lock_product,
 )
-from gnss_product_management.specifications.products.product import PathTemplate, Product
-from gnss_product_management.specifications.remote.resource import SearchTarget, Server
+from gnss_product_management.specifications.products.product import (
+    PathTemplate,
+    Product,
+    VariantCatalog,
+    VersionCatalog,
+)
+from gnss_product_management.specifications.remote.resource import (
+    ResourceProductSpec,
+    ResourceSpec,
+    SearchTarget,
+    Server,
+)
+from gnss_product_management.specifications.remote.resource_catalog import ResourceCatalog
+from gnss_product_management.utilities.helpers import hash_file
 
 # ── Constants ─────────────────────────────────────────────────────
 
@@ -49,7 +61,7 @@ class _StubWorkspace:
         )
 
 
-def _make_query(remote_root: Path, filename: str) -> SearchTarget:
+def _make_query(remote_root: Path, filename: str, checksum: str | None = None) -> SearchTarget:
     product = Product(
         name="ORBIT",
         parameters=[],
@@ -59,6 +71,7 @@ def _make_query(remote_root: Path, filename: str) -> SearchTarget:
         product=product,
         server=Server(id="remote", hostname=str(remote_root)),
         directory=PathTemplate(pattern="products", value="products"),
+        checksum=checksum,
     )
 
 
@@ -83,8 +96,8 @@ def env(tmp_path: Path):
     }
 
 
-def _download(env, filename: str = "TEST.SP3") -> Path | None:
-    query = _make_query(env["remote_root"], filename)
+def _download(env, filename: str = "TEST.SP3", checksum: str | None = None) -> Path | None:
+    query = _make_query(env["remote_root"], filename, checksum)
     return env["wormhole"].download_one(
         query=query,
         local_resource_id="local_config",
@@ -233,3 +246,82 @@ class TestGzipCache:
         )
         assert _download(gz_env, filename="ATT.OBX.gz") == cached
         assert calls == []
+
+
+# ── Spec-declared checksums ───────────────────────────────────────
+
+
+class TestDeclaredChecksum:
+    def test_matching_checksum_download_succeeds(self, env) -> None:
+        checksum = hash_file(env["remote_dir"] / "TEST.SP3")
+        result = _download(env, checksum=checksum)
+        assert result is not None
+        assert result.read_bytes() == REMOTE_CONTENT
+
+    def test_checksum_mismatch_is_deleted_not_cached(self, env) -> None:
+        """A remote file that doesn't match the declared checksum (upstream
+        drift or corruption) must fail — and leave nothing on disk."""
+        wrong = "sha256:" + "0" * 64
+        assert _download(env, checksum=wrong) is None
+        assert not (env["sink_dir"] / "TEST.SP3").exists()
+
+    def test_poisoned_cache_with_consistent_sidecar_is_evicted(self, env) -> None:
+        """The case sidecar validation alone cannot catch: a truncated file
+        whose sidecar hash was computed from the already-truncated content.
+        The spec-declared checksum is the only source of truth for it."""
+        cached = env["sink_dir"] / "TEST.SP3"
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(REMOTE_CONTENT[:10])
+        _write_sidecar(cached)  # hash matches the truncated content
+
+        checksum = hash_file(env["remote_dir"] / "TEST.SP3")
+        result = _download(env, checksum=checksum)
+        assert result == cached
+        assert result.read_bytes() == REMOTE_CONTENT
+
+    def test_checksum_flows_from_resource_spec(self) -> None:
+        """ResourceCatalog.build must carry a product entry's checksum
+        onto every SearchTarget it expands."""
+        checksum = "sha256:" + "a" * 64
+        spec = ResourceSpec(
+            id="TST",
+            name="Test Center",
+            servers=[Server(id="srv", hostname="https://example.com")],
+            products=[
+                ResourceProductSpec(
+                    id="tst_orbit",
+                    server_id="srv",
+                    product_name="ORBIT",
+                    parameters=[],
+                    directory=PathTemplate(pattern="products/"),
+                    checksum=checksum,
+                )
+            ],
+        )
+        catalog = _StubProductCatalog(
+            {
+                "ORBIT": VersionCatalog[Product](
+                    versions={
+                        "1": VariantCatalog[Product](
+                            variants={
+                                "default": Product(
+                                    name="ORBIT",
+                                    parameters=[],
+                                    filename=PathTemplate(pattern="TEST.SP3"),
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        )
+        built = ResourceCatalog.build(spec, catalog)
+        assert built.queries
+        assert all(q.checksum == checksum for q in built.queries)
+
+
+class _StubProductCatalog:
+    """Minimal stand-in for ProductCatalog in ResourceCatalog.build."""
+
+    def __init__(self, products):
+        self.products = products

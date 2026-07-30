@@ -15,9 +15,11 @@
 # To re-pin: pick the new upstream commit, verify every product below
 # still resolves against its table/ listing
 # (https://api.github.com/repos/PrideLab/PRIDE-PPPAR/contents/table?ref=<sha>),
-# update the hostname, and coordinate the same SHA with consumers that
-# install the pdp3 binary (e.g. earthscope-sfg-workflows' clone-pride /
-# install-pride tasks) so the binary and tables stay in lockstep.
+# update the hostname, recompute every product checksum from the files
+# at the new commit (sha256:<hex> of each file as served), and
+# coordinate the same SHA with consumers that install the pdp3 binary
+# (e.g. earthscope-sfg-workflows' clone-pride / install-pride tasks) so
+# the binary and tables stay in lockstep.
 
 id: PRIDE
 name: PrideLab PRIDE-PPPAR (GitHub)
@@ -47,6 +49,7 @@ products:
     description: Satellite name/identifier lookup table
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:1dc164d6cc254cae58851e5f550af4dd970d384cd3d2a2c46fbf018e456a1e3e
 
   - id: pride_ocean_tide
     product_name: OCEAN_TIDE_FES2004
@@ -55,6 +58,7 @@ products:
     description: FES2004 ocean tide model coefficients
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:5b05eb062f169fffec0f787143db7315b3a94198ee3f0bee54f1c28dca593bce
 
   - id: pride_ocean_load_green
     product_name: OCEAN_LOAD_GREEN
@@ -63,6 +67,7 @@ products:
     description: Green's function coefficients for ocean tidal loading
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:926332ba664ced0fdbec95811e45e07f1e355caa704cf215ab161cf75415e0bd
 
   - id: pride_gpt3_grid
     product_name: GPT3_GRID
@@ -71,6 +76,7 @@ products:
     description: GPT3 global pressure and temperature model grid
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:9fca4ab977bbbb195765e546fd6b67dc80d912829534975bbbd99521fc23b792
 
   - id: pride_ocean_load
     product_name: OCEAN_LOAD_PROGRAM
@@ -79,6 +85,7 @@ products:
     description: Pre-computed ocean loading parameters
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:888f7271ad4e5ce959a7259b7a3c85e6c098fab2aa705c86ba32fb749042eb53
 
   # ── Static table files (base products) ──────────────────────────
   - id: pride_leap_sec
@@ -88,6 +95,7 @@ products:
     description: IERS leap seconds file
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:8403d0274eaee978523674cb6a72216510400c4c4b6519f469cd0a46cc7b4f1d
 
   - id: pride_sat_params
     product_name: SAT_PARAMS
@@ -96,6 +104,7 @@ products:
     description: Satellite metadata parameters table
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:aa20d1bff19f8c2d16acff99bbc08e9a91a93df0117a574c3801c205906f54e2
 
   # ── Antenna calibrations (ANTEX archive) ────────────────────────
   - id: pride_atx_igs14
@@ -108,6 +117,7 @@ products:
       - {name: REFFRAME, value: igs14}
       - {name: GPSWEEK, value: "2247"}
     directory: {pattern: "table/"}
+    checksum: sha256:dace943a12ae87dc70c4e2a1811244bcc3054ce5f17504313309af923d023b5f
 
   - id: pride_atx_igs20
     product_name: ATTATX
@@ -119,6 +129,7 @@ products:
       - {name: REFFRAME, value: igs20}
       - {name: GPSWEEK, value: "2317"}
     directory: {pattern: "table/"}
+    checksum: sha256:d001d9407a1e2dd976ad2a6dd2e0a35fefd216447d3930562aec8df81e5f0edd
 
   - id: pride_atx_igsR3
     product_name: ATTATX
@@ -130,6 +141,7 @@ products:
       - {name: REFFRAME, value: igsR3}
       - {name: GPSWEEK, value: "2135"}
     directory: {pattern: "table/"}
+    checksum: sha256:2dd6d1e4131c012fee59ae1c351df4981b9edea4debf69371ac809aed08034de
 
   # ── Orography grid ─────────────────────────────────────────────
   - id: pride_orography_1x1
@@ -140,6 +152,7 @@ products:
     parameters:
       - {name: RESOLUTION, value: "1x1"}
     directory: {pattern: "table/"}
+    checksum: sha256:39715d4c9810deb6f88e30570256ec0b38348d3f465c87b7b0e67f2c1c69f0c4
 
   - id: pride_orography
     product_name: OROGRAPHY
@@ -148,3 +161,4 @@ products:
     description: Ellipsoidal terrain height grid (VMF1)
     parameters: []
     directory: {pattern: "table/"}
+    checksum: sha256:ed199b341cb9b3358af62cb16148222fbefd339bbab3edfbd31adaa10685c25c

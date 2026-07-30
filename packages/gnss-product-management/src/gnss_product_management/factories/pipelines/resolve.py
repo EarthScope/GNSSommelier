@@ -5,8 +5,10 @@ given date: finds resources, optionally downloads them, writes per-file
 sidecar lockfiles, and persists an aggregate lockfile.
 
 Fast path: if an aggregate lockfile already exists for
-``(package, task, date, version)`` the pipeline returns immediately
-without searching or downloading.
+``(package, task, date, version)`` and every required entry still
+validates (file present, sidecar hash matching), the pipeline returns
+immediately without searching or downloading.  Otherwise it falls
+through to a full re-resolution.
 """
 
 from __future__ import annotations
@@ -23,7 +25,12 @@ from gnss_product_management.factories.pipelines.lockfile_writer import Lockfile
 from gnss_product_management.factories.remote_transport import WormHole
 from gnss_product_management.factories.search_planner import SearchPlanner
 from gnss_product_management.lockfile.manager import LockfileManager
-from gnss_product_management.lockfile.operations import get_package_version
+from gnss_product_management.lockfile.operations import (
+    HashMismatchMode,
+    get_lock_product,
+    get_package_version,
+    validate_lock_product,
+)
 from gnss_product_management.specifications.dependencies.dependencies import (
     Dependency,
     DependencyResolution,
@@ -31,7 +38,7 @@ from gnss_product_management.specifications.dependencies.dependencies import (
     ResolvedDependency,
     SearchPreference,
 )
-from gnss_product_management.utilities.paths import AnyPath, as_path
+from gnss_product_management.utilities.paths import AnyPath
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +51,9 @@ class ResolvePipeline:
     in parallel via a :class:`~concurrent.futures.ThreadPoolExecutor`.
 
     Fast path: if an aggregate lockfile already exists for the
-    ``(package, task, date, version)`` identity, returns immediately
-    without searching or downloading.
+    ``(package, task, date, version)`` identity and every required
+    entry still validates, returns immediately without searching or
+    downloading; otherwise re-resolves.
 
     Args:
         env: The product registry with built catalogs.
@@ -119,15 +127,21 @@ class ResolvePipeline:
             version=version,
         )
         if existing is not None:
-            logger.info(
-                "Lockfile already exists for %s on %s — skipping resolution: %s",
+            resolution = self._resolution_from_lockfile(existing, spec)
+            if resolution.all_required_fulfilled:
+                logger.info(
+                    "Lockfile already exists for %s on %s — skipping resolution: %s",
+                    spec.name,
+                    date.date(),
+                    lf_path,
+                )
+                logger.info(resolution.summary())
+                return resolution, lf_path
+            logger.warning(
+                "Lockfile for %s on %s has missing or invalid entries — re-resolving",
                 spec.name,
                 date.date(),
-                lf_path,
             )
-            resolution = self._resolution_from_lockfile(existing, spec)
-            logger.info(resolution.summary())
-            return resolution, lf_path
 
         # --- Full resolution -------------------------------------------------
         resolve_one = partial(
@@ -227,6 +241,29 @@ class ResolvePipeline:
             remote_url=found.uri,
         )
 
+    @staticmethod
+    def _lockfile_entry_is_valid(lp) -> bool:
+        """Check a lockfile entry's sink file: existence, then sidecar hash.
+
+        Aggregate lockfile entries carry no hash of their own, so after
+        the existence check the per-file sidecar ``_lock.json`` (written
+        at download time) provides the hash to validate against.  A sink
+        with no sidecar is only checked for existence.
+
+        Args:
+            lp: The :class:`LockProduct` entry from the aggregate lockfile.
+
+        Returns:
+            ``True`` if the sink file exists and matches its recorded hash.
+        """
+        # Also resolves .gz sinks to their decompressed file, mutating lp.sink.
+        if not validate_lock_product(lp, mode=HashMismatchMode.STRICT):
+            return False
+        sidecar = get_lock_product(lp.sink)
+        if sidecar is None:
+            return True
+        return validate_lock_product(sidecar, mode=HashMismatchMode.STRICT)
+
     def _resolution_from_lockfile(
         self,
         existing,
@@ -235,8 +272,8 @@ class ResolvePipeline:
         """Reconstruct a :class:`DependencyResolution` from an existing lockfile.
 
         Iterates over every dependency in the spec (not just those in
-        the lockfile), marking any absent or file-missing entries as
-        ``'missing'``.
+        the lockfile), marking any absent, file-missing, or
+        hash-mismatched entries as ``'missing'``.
 
         Args:
             existing: The loaded :class:`DependencyLockFile`.
@@ -254,10 +291,9 @@ class ResolvePipeline:
                     ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
                 )
                 continue
-            sink_path = as_path(lp.sink) if lp.sink else None
-            if sink_path is None or not sink_path.exists():
+            if not lp.sink or not self._lockfile_entry_is_valid(lp):
                 logger.warning(
-                    "Lockfile entry for %s points to missing file %s — will re-resolve on next run",
+                    "Lockfile entry for %s points to a missing or corrupt file %s",
                     dep.spec,
                     lp.sink,
                 )
