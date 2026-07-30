@@ -12,6 +12,11 @@ import fsspec.utils
 
 from gnss_product_management.environments import WorkSpace
 from gnss_product_management.factories.connection_pool import ConnectionPoolFactory
+from gnss_product_management.lockfile.operations import (
+    HashMismatchMode,
+    get_lock_product,
+    validate_lock_product,
+)
 from gnss_product_management.specifications.products.product import PathTemplate
 from gnss_product_management.specifications.remote.resource import SearchTarget
 from gnss_product_management.utilities.helpers import decompress_gzip
@@ -255,6 +260,30 @@ class WormHole:
 
         return updated
 
+    @staticmethod
+    def _validate_cached_or_evict(path: AnyPath) -> bool:
+        """Validate a cached file against its sidecar lockfile hash.
+
+        Returns ``True`` when the file can be trusted: either its SHA-256
+        matches the sidecar ``_lock.json`` written at download time, or no
+        sidecar exists to validate against.  On a hash mismatch the file
+        and its stale sidecar are deleted so the caller re-downloads.
+
+        Args:
+            path: Existing cached file to validate.
+
+        Returns:
+            ``True`` if the cached file is usable, ``False`` if it was
+            evicted and must be re-downloaded.
+        """
+        lock = get_lock_product(path)
+        if lock is None or validate_lock_product(lock, mode=HashMismatchMode.STRICT):
+            return True
+        logger.warning("Cached file failed hash validation, evicting: %s", path)
+        as_path(str(path) + "_lock.json").unlink(missing_ok=True)
+        path.unlink(missing_ok=True)
+        return False
+
     def download_one(
         self,
         query: SearchTarget,
@@ -264,8 +293,12 @@ class WormHole:
     ) -> AnyPath | None:
         """Synchronously download matched files for one search target.
 
-        Skips the download if the destination file already exists and
-        is non-empty.
+        Skips the download if the destination file already exists,
+        is non-empty, and matches its sidecar lockfile hash (when one
+        exists) — a corrupt cached file is evicted and re-downloaded.
+        Downloaded files are verified against the remote size (when the
+        server reports one) and retried once on mismatch, so truncated
+        transfers are never cached.
 
         Args:
             query: The resolved search target with filename value.
@@ -289,15 +322,24 @@ class WormHole:
         # Prefer an already-decompressed version on disk
         if destination_path.suffix == ".gz":
             decompressed_path = destination_path.with_suffix("")
-            if decompressed_path.exists() and decompressed_path.stat().st_size > 0:
+            if (
+                decompressed_path.exists()
+                and decompressed_path.stat().st_size > 0
+                and self._validate_cached_or_evict(decompressed_path)
+            ):
                 logger.debug(
                     "Skipping download, decompressed file already exists: %s",
                     decompressed_path,
                 )
                 return decompressed_path
 
-        # Skip download if the file already exists and is non-empty
-        if destination_path.exists() and destination_path.stat().st_size > 0:
+        # Skip download if the file already exists, is non-empty, and
+        # passes sidecar hash validation.
+        if (
+            destination_path.exists()
+            and destination_path.stat().st_size > 0
+            and self._validate_cached_or_evict(destination_path)
+        ):
             logger.debug("Skipping download, file already exists: %s", destination_path)
             return destination_path
 
@@ -311,24 +353,47 @@ class WormHole:
             logger.warning("Skipping zero-byte remote file: %s/%s", hostname, remote_file_path)
             return None
 
-        try:
-            result = self._connection_pool_factory.download_file(
-                hostname=hostname,
-                remote_path=remote_file_path,
-                target_dir=destination_dir,
-            )
-        except Exception as e:
+        result: Path | None = None
+        for attempt in range(2):
+            try:
+                result = self._connection_pool_factory.download_file(
+                    hostname=hostname,
+                    remote_path=remote_file_path,
+                    target_dir=destination_dir,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Download failed for %s/%s/%s: %s",
+                    hostname,
+                    query.directory.value,
+                    query.product.filename.value,
+                    e,
+                )
+                return None
+            if result is None:
+                return None
+            if remote_size is None:
+                break
+            local_size = result.stat().st_size
+            if local_size == remote_size:
+                break
+            # Truncated/corrupt transfer: never leave it on disk where a
+            # later run would treat it as a satisfied dependency.
             logger.warning(
-                "Download failed for %s/%s/%s: %s",
-                hostname,
-                query.directory.value,
-                query.product.filename.value,
-                e,
+                "Size mismatch for %s: %d bytes local vs %d remote — deleting%s",
+                result,
+                local_size,
+                remote_size,
+                ", retrying" if attempt == 0 else "",
             )
+            result.unlink(missing_ok=True)
+            result = None
+
+        if result is None:
             return None
 
         # Decompress gzip files after download
-        if result is not None and result.suffix == ".gz":
+        if result.suffix == ".gz":
             decompressed = decompress_gzip(result)
             if decompressed is not None:
                 return decompressed
