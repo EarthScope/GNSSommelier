@@ -5,6 +5,19 @@
 # via the fsspec GithubFileSystem (uses the GitHub Contents API).
 #
 # Source: https://github.com/PrideLab/PRIDE-PPPAR/tree/master/table
+#
+# The server hostname below is pinned to a specific upstream commit SHA
+# rather than a floating branch, so table resolution is reproducible and
+# an upstream rename/move cannot break consumers (see issue #26).
+# Upstream publishes no semantic version tags, so a commit SHA is the
+# only stable ref available.
+#
+# To re-pin: pick the new upstream commit, verify every product below
+# still resolves against its table/ listing
+# (https://api.github.com/repos/PrideLab/PRIDE-PPPAR/contents/table?ref=<sha>),
+# update the hostname, and coordinate the same SHA with consumers that
+# install the pdp3 binary (e.g. earthscope-sfg-workflows' clone-pride /
+# install-pride tasks) so the binary and tables stay in lockstep.
 
 id: PRIDE
 name: PrideLab PRIDE-PPPAR (GitHub)
@@ -17,7 +30,10 @@ website: https://github.com/PrideLab/PRIDE-PPPAR
 servers:
   - id: pride_github
     name: GitHub Repository
-    hostname: "github://PrideLab:PRIDE-PPPAR@master"
+    # Pinned to upstream master as of 2026-07-30; all 12 table products
+    # below verified present at this commit (incl. igs20_2317.atx,
+    # orography_ell, orography_ell_1x1).
+    hostname: "github://PrideLab:PRIDE-PPPAR@b7451a81de4689f357f3fd78b0713bb1c185421b"
     protocol: github
     auth_required: false
     description: PrideLab/PRIDE-PPPAR repository via GitHub Contents API
