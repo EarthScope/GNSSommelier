@@ -42,11 +42,11 @@ def _header_get_time(line: str) -> datetime:
 
 
 def epoch_get_time(line: str) -> datetime:
-    """Extract the epoch timestamp from a RINEX 2 observation record.
+    """Extract the epoch timestamp from a RINEX observation epoch record.
 
-    Assumes a 2-digit year (added to 2000).  The line is whitespace-split
-    and the first six tokens are interpreted as
-    ``YY MM DD HH MI SS.sss``.
+    Supports both RINEX 2 epoch records (``YY MM DD HH MI SS.sss ...``, a
+    2-digit year with no prefix) and RINEX 3/4 epoch records (``>  YYYY MM DD
+    HH MI SS.sss ...``, an epoch-flag prefix and a 4-digit year).
 
     Args:
         line: A single RINEX observation epoch line.
@@ -54,20 +54,29 @@ def epoch_get_time(line: str) -> datetime:
     Returns:
         Parsed UTC datetime.
     """
-    date_line = line.strip().split()
+    tokens = line.strip().split()
+    if tokens and tokens[0] == ">":
+        tokens = tokens[1:]
+    year_token = tokens[0]
+    year = int(year_token) if len(year_token) == 4 else 2000 + int(year_token)
     return datetime(
-        year=2000 + int(date_line[0]),
-        month=int(date_line[1]),
-        day=int(date_line[2]),
-        hour=int(date_line[3]),
-        minute=int(date_line[4]),
-        second=int(float(date_line[5])),
+        year=year,
+        month=int(tokens[1]),
+        day=int(tokens[2]),
+        hour=int(tokens[3]),
+        minute=int(tokens[4]),
+        second=int(float(tokens[5])),
     )
 
 
 def rinex_get_time_range(source: str | Path) -> tuple[datetime, datetime]:
     """
     Extract the time range from a RINEX observation file.
+
+    Prefers the header's ``TIME OF LAST OBS`` record for the end timestamp,
+    since it is authoritative and version-independent.  Falls back to
+    scanning epoch records (RINEX 2 or 3/4) when that header field is
+    absent, as it is in some older RINEX 2 files.
 
     Parameters
     ----------
@@ -86,42 +95,58 @@ def rinex_get_time_range(source: str | Path) -> tuple[datetime, datetime]:
     """
     timestamp_data_start = None
     timestamp_data_end = None
+    header_done = False
 
     with open(source) as f:
-        files = f.readlines()
+        lines = f.readlines()
 
-        for line in files:
-            if timestamp_data_start is None:
-                if "TIME OF FIRST OBS" in line:
-                    start_time = _header_get_time(line)
-                    timestamp_data_start = start_time
-                    timestamp_data_end = start_time
-                    year = str(timestamp_data_start.year)[2:]
-                    break
+    for line in lines:
+        if "TIME OF FIRST OBS" in line:
+            timestamp_data_start = _header_get_time(line)
+        elif "TIME OF LAST OBS" in line:
+            timestamp_data_end = _header_get_time(line)
+        elif "END OF HEADER" in line:
+            header_done = True
+            break
 
-            if timestamp_data_start is not None:
-                if line.strip().startswith(year):
-                    try:
-                        current_date = epoch_get_time(line)
-                        if current_date and current_date > timestamp_data_start:
-                            timestamp_data_end = current_date
-                    except Exception:
-                        pass
-
-    if timestamp_data_start is not None and timestamp_data_end == timestamp_data_start:
-        timestamp_data_end = datetime(
-            year=timestamp_data_start.year,
-            month=timestamp_data_start.month,
-            day=timestamp_data_start.day,
-            hour=23,
-            minute=59,
-            second=59,
-            microsecond=999999,
-        )
-
-    if timestamp_data_start is None or timestamp_data_end is None:
+    if timestamp_data_start is None:
         logger.error("Failed to extract time range from %s", source)
         raise ValueError(f"Failed to extract time range from {source}")
+
+    if timestamp_data_end is None or timestamp_data_end < timestamp_data_start:
+        # No (valid) TIME OF LAST OBS header field: scan epoch records for
+        # the true last observation time instead.
+        timestamp_data_end = timestamp_data_start
+        year2 = str(timestamp_data_start.year)[2:]
+        year4 = str(timestamp_data_start.year)
+        in_body = header_done
+        for line in lines:
+            if not in_body:
+                if "END OF HEADER" in line:
+                    in_body = True
+                continue
+            stripped = line.strip()
+            token = stripped[1:].strip() if stripped.startswith(">") else stripped
+            if token.startswith(year2) or token.startswith(year4):
+                try:
+                    current_date = epoch_get_time(line)
+                    if current_date > timestamp_data_end:
+                        timestamp_data_end = current_date
+                except Exception:
+                    pass
+
+        if timestamp_data_end == timestamp_data_start:
+            # No epoch records were found either: assume the file covers the
+            # full day rather than reporting a zero-length range.
+            timestamp_data_end = datetime(
+                year=timestamp_data_start.year,
+                month=timestamp_data_start.month,
+                day=timestamp_data_start.day,
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+            )
 
     return timestamp_data_start, timestamp_data_end
 
