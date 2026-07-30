@@ -11,7 +11,7 @@
 #   │   ├── leap.sec
 #   │   ├── sat_parameters
 #   │   ├── igs20.atx
-#   │   └── orography_ell_5x5
+#   │   └── orography_ell
 #   └── {YYYY}/{DDD}/
 #       ├── products/                 ← precise products (orbit, clock, bias, …)
 #       │   ├── WUM0MGXRAP_20250150000_01D_05M_ORB.SP3.gz
