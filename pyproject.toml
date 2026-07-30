@@ -27,6 +27,7 @@ docs = [
 testpaths = [
     "packages/gnss-product-management/test",
     "packages/gpm-cli/test",
+    "packages/pride-ppp/tests",
 ]
 addopts = "-v"
 markers = [
