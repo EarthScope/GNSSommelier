@@ -123,6 +123,7 @@ class ResourceCatalog(Catalog):
                                 product=pinned_product,
                                 server=server,
                                 directory=rp_spec.directory,
+                                checksum=rp_spec.checksum,
                             ).narrow()
                         )
 
