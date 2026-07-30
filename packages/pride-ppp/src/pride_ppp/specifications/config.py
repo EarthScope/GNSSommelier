@@ -289,6 +289,8 @@ class DataProcessingStrategies(BaseModel):
     rck_model : str
         Receiver clock model: ``"WNO"`` (white noise) or ``"STO"``
         (random walk).
+    isb_model : str
+        GNSS receiver inter-system biases to be processed.
     ztd_model : str
         Zenith troposphere delay model: ``"PWC:60"`` (piece-wise
         constant, 60 min) or ``"STO"`` (random walk).
@@ -304,6 +306,7 @@ class DataProcessingStrategies(BaseModel):
 
     strict_editing: str = "Default"
     rck_model: str = "Default"
+    isb_model: str = "Default"
     ztd_model: str = "Default"
     htg_model: str = "Default"
     iono_2nd: str = "Default"
@@ -320,6 +323,10 @@ class AmbiguityFixingOptions(BaseModel):
         ``"YES"`` to use LAMBDA method for ambiguity fixing.
     ambiguity_duration : int
         Minimum time duration in seconds for a resolvable ambiguity.
+    ai_ambiguity_validation : str
+        ``"YES"``/``"NO"`` — validate ambiguity fixing with SVM.  Required
+        by pdp3 (v3.2.10+); omitting the key crashes its ``sed`` handling
+        and every run silently produces 0 KIN files.
     cutoff_elevation : int
         Cutoff mean elevation angle (degrees) for eligible ambiguities.
     pco_on_wide_lane : str
@@ -339,6 +346,7 @@ class AmbiguityFixingOptions(BaseModel):
 
     ambiguity_co_var: str = "Default"
     ambiguity_duration: int = 600
+    ai_ambiguity_validation: str = "YES"
     cutoff_elevation: int = 15
     pco_on_wide_lane: str = "YES"
     widelane_decision: list[float] = Field(default_factory=lambda: [0.20, 0.15, 1000.0])
@@ -523,6 +531,9 @@ class PRIDEPPPFileConfig(BaseModel):
                 f"RCK model              = {proc.rck_model}                 ! receiver clock (WNO/STO). WNO, white noise\n"
             )
             f.write(
+                f"ISB model              = {proc.isb_model}                 ! GNSS receiver inter-system biases to be processed\n"
+            )
+            f.write(
                 f"ZTD model              = {proc.ztd_model}                 ! zenith troposphere delay (PWC/STO). PWC:60, piece-wise constant for 60 min. STO, random walk\n"
             )
             f.write(
@@ -546,6 +557,9 @@ class PRIDEPPPFileConfig(BaseModel):
             )
             f.write(
                 f"Ambiguity duration     = {amb.ambiguity_duration}                     ! time duration in seconds for a resolvable ambiguity\n"
+            )
+            f.write(
+                f"AI Ambiguity validation = {amb.ai_ambiguity_validation}                     ! Ambiguity fixing validation is SVM or not\n"
             )
             f.write(
                 f"Cutoff elevation       = {amb.cutoff_elevation}                      ! cutoff mean elevation for eligible ambiguities to be resolved\n"
@@ -714,6 +728,8 @@ class PRIDEPPPFileConfig(BaseModel):
                 proc_kwargs["strict_editing"] = get_value(line)
             elif "RCK model" in line:
                 proc_kwargs["rck_model"] = get_value(line)
+            elif "ISB model" in line:
+                proc_kwargs["isb_model"] = get_value(line)
             elif "ZTD model" in line:
                 proc_kwargs["ztd_model"] = get_value(line)
             elif "HTG model" in line:
@@ -734,6 +750,8 @@ class PRIDEPPPFileConfig(BaseModel):
                 amb_kwargs["ambiguity_co_var"] = get_value(line)
             elif "Ambiguity duration" in line:
                 amb_kwargs["ambiguity_duration"] = int(get_value(line))
+            elif "AI Ambiguity validation" in line:
+                amb_kwargs["ai_ambiguity_validation"] = get_value(line)
             elif "Cutoff elevation" in line:
                 amb_kwargs["cutoff_elevation"] = int(get_value(line))
             elif "PCO on wide-lane" in line:
