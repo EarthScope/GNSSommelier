@@ -19,6 +19,7 @@ jobs:
       - run: uv run ruff format --check packages/
       - run: uv run pytest packages/gnss-product-management/test/ -m "not integration" -q
       - run: uv run pytest packages/gpm-cli/test/ -q
+      - run: uv run pytest packages/pride-ppp/tests/ -q
 
   update-docs:
     runs-on: ubuntu-latest
