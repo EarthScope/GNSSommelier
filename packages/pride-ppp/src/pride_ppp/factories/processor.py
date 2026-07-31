@@ -108,6 +108,20 @@ _SPEC_TO_PRODUCT_FIELD: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
+class MissingProductsError(RuntimeError):
+    """Raised when required GNSS products could not be resolved.
+
+    pdp3 cannot produce a usable solution without the required products,
+    so processing halts instead of launching a run that is guaranteed to
+    fail downstream.
+    """
+
+    def __init__(self, date: datetime.date, missing: list[str]):
+        self.date = date
+        self.missing = missing
+        super().__init__(f"Missing required products for {date}: {missing}")
+
+
 @dataclass(frozen=True)
 class ProcessingResult:
     """Immutable result from a single RINEX → kinematic processing run.
@@ -744,6 +758,9 @@ class PrideProcessor:
 
         Raises:
             FileNotFoundError: If *rinex* does not exist.
+            MissingProductsError: If required products could not be
+                resolved (unless a valid cached output short-circuits
+                the run first).
         """
         rinex = Path(rinex)
         if not rinex.exists():
@@ -796,6 +813,7 @@ class PrideProcessor:
         if not resolution.all_required_fulfilled:
             missing = [r.spec for r in resolution.missing if r.required]
             logger.error("Missing required products: %s", missing)
+            raise MissingProductsError(start_date, missing)
 
         # --- 4. Write config --------------------------------------------------
         # Config is persisted at pride_dir/{year}/{doy}/config_file so it can
@@ -865,7 +883,10 @@ class PrideProcessor:
             A ``ProcessingResult`` for each file as it completes.
             Cached results are yielded first, then pdp3 results in
             completion order.  Wrap in ``list()`` if you need all
-            results at once.
+            results at once.  Files whose date is missing required
+            products yield a failed result (``returncode == -1``,
+            ``success == False``) without running pdp3; other dates in
+            the batch are unaffected.
 
         Raises:
             ValueError: If *sites* length does not match *rinex_files*.
@@ -933,6 +954,30 @@ class PrideProcessor:
                     res_path=res_file if res_file and res_file.exists() else None,
                     config_path=config_paths[d],
                     resolution=resolutions[d],
+                )
+                continue
+
+            # Required products missing for this date: pdp3 would fail
+            # downstream, so yield a failed result instead of dispatching.
+            # Other dates in the batch still process normally.
+            if not resolutions[d].all_required_fulfilled:
+                missing = [r.spec for r in resolutions[d].missing if r.required]
+                logger.error(
+                    "Missing required products for %s on %s: %s — skipping pdp3 run",
+                    site,
+                    d,
+                    missing,
+                )
+                yield ProcessingResult(
+                    rinex_path=rinex,
+                    site=site,
+                    date=d,
+                    kin_path=None,
+                    res_path=None,
+                    config_path=config_paths[d],
+                    resolution=resolutions[d],
+                    returncode=-1,
+                    stderr=f"Missing required products: {missing}",
                 )
                 continue
 

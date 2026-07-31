@@ -29,7 +29,12 @@ from .factories.output import (
     read_kin_data,
     validate_kin_file,
 )
-from .factories.processor import PrideProcessor, ProcessingMode, ProcessingResult
+from .factories.processor import (
+    MissingProductsError,
+    PrideProcessor,
+    ProcessingMode,
+    ProcessingResult,
+)
 from .factories.rinex import merge_broadcast_files, rinex_get_time_range
 from .specifications.cli import PrideCLIConfig
 from .specifications.config import PRIDEPPPFileConfig, SatelliteProducts
@@ -40,6 +45,7 @@ __all__ = [
     "PrideProcessor",
     "ProcessingMode",
     "ProcessingResult",
+    "MissingProductsError",
     # CLI / config
     "PrideCLIConfig",
     "PRIDEPPPFileConfig",
