@@ -604,6 +604,15 @@ class PrideProcessor:
                 for line in result.stderr.strip().splitlines():
                     logger.warning(line)
 
+            if result.returncode != 0:
+                stderr_tail = "\n".join(result.stderr.strip().splitlines()[-5:])
+                logger.error(
+                    "pdp3 exited with code %d for site %s: %s",
+                    result.returncode,
+                    site,
+                    stderr_tail or "(no stderr)",
+                )
+
             # pdp3 writes outputs as e.g. "kin_2025254_ncc1" (no extension).
             # Search recursively in the working dir to find them.
             kin_files = list(Path(tmpdir).rglob(f"kin_*_{site.lower()}"))
@@ -621,6 +630,12 @@ class PrideProcessor:
                 shutil.move(str(src), str(dst))
                 kin_out = dst
                 logger.info("Generated kin file %s", dst)
+            else:
+                logger.error(
+                    "pdp3 produced no kin output for site %s (returncode %d)",
+                    site,
+                    result.returncode,
+                )
 
             if res_files:
                 src = res_files[0]
@@ -679,7 +694,7 @@ class PrideProcessor:
                 return False
             # Attempt to parse the kinfile — only accept it if it yields data
             kin_df: pd.DataFrame | None = kin_to_kin_position_df(kin_path)
-            if kin_df and not kin_df.empty:
+            if kin_df is not None and not kin_df.empty:
                 return True
         return False
 

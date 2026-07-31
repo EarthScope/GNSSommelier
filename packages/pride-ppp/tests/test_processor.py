@@ -21,6 +21,7 @@ except ImportError as e:
     pytest.skip(f"gnss-product-management not installed: {e}", allow_module_level=True)
 
 from pride_ppp.factories.processor import (
+    PrideProcessor,
     _resolution_to_satellite_products,
     _resolution_to_table_dir,
 )
@@ -173,3 +174,35 @@ def test_resolution_to_table_dir_with_none_local_path() -> None:
 
     table_dir = _resolution_to_table_dir(resolution)
     assert table_dir is None
+
+
+@pytest.fixture
+def processor() -> PrideProcessor:
+    """A PrideProcessor without running __init__ — _validate_kinfile is self-free."""
+    return object.__new__(PrideProcessor)
+
+
+class TestValidateKinfile:
+    """Regression tests for PrideProcessor._validate_kinfile.
+
+    The original implementation used `if kin_df and not kin_df.empty`, which
+    raises `ValueError: The truth value of a DataFrame is ambiguous` for any
+    kin file that parses into a DataFrame.
+    """
+
+    def test_valid_kinfile_returns_true(self, processor: PrideProcessor, kin_file: Path) -> None:
+        # Raised ValueError before the truthiness fix
+        assert processor._validate_kinfile(kin_file) is True
+
+    def test_missing_path_returns_false(self, processor: PrideProcessor, tmp_path: Path) -> None:
+        assert processor._validate_kinfile(tmp_path / "kin_missing.kin") is False
+
+    def test_override_skips_cache_check(self, processor: PrideProcessor, kin_file: Path) -> None:
+        assert processor._validate_kinfile(kin_file, override=True) is False
+
+    def test_unparseable_kinfile_returns_false(
+        self, processor: PrideProcessor, tmp_path: Path
+    ) -> None:
+        garbage = tmp_path / "kin_2021220_bako.kin"
+        garbage.write_text("not a kin file\nno header here\n")
+        assert processor._validate_kinfile(garbage) is False
