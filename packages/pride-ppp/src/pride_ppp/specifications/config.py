@@ -4,6 +4,7 @@ PRIDE PPP-AR configuration file models.
 Read/write the ``config_file`` format consumed by the ``pdp3`` binary.
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -797,8 +798,9 @@ class PRIDEPPPFileConfig(BaseModel):
     def load_default(cls) -> "PRIDEPPPFileConfig":
         """Load the default ``config_template`` shipped with PRIDE-PPPAR.
 
-        Searches ``~/.PRIDE_PPPAR_BIN/config_template`` first, then falls
-        back to ``/opt/PRIDE-PPPAR/.PRIDE_PPPAR_BIN/config_template``.
+        Searches ``~/.PRIDE_PPPAR_BIN`` first, then any ``.PRIDE_PPPAR_BIN``
+        directory on ``$PATH`` (how pixi-based installs expose it), then
+        falls back to ``/opt/PRIDE-PPPAR/.PRIDE_PPPAR_BIN``.
 
         Returns
         -------
@@ -808,11 +810,18 @@ class PRIDEPPPFileConfig(BaseModel):
         Raises
         ------
         FileNotFoundError
-            If neither installation path exists.
+            If none of the installation paths exist.
         """
         pdp_home = Path.home() / ".PRIDE_PPPAR_BIN"
         if not pdp_home.exists():
-            pdp_home = Path("/opt/PRIDE-PPPAR/.PRIDE_PPPAR_BIN")
+            pdp_home = next(
+                (
+                    Path(entry)
+                    for entry in os.environ.get("PATH", "").split(os.pathsep)
+                    if entry.endswith(".PRIDE_PPPAR_BIN") and Path(entry).exists()
+                ),
+                Path("/opt/PRIDE-PPPAR/.PRIDE_PPPAR_BIN"),
+            )
             if not pdp_home.exists():
                 raise FileNotFoundError(f"PRIDE PPPAR directory not found: {pdp_home}")
 
