@@ -78,18 +78,16 @@ def get_wrms_from_res(res_path):
                 timestamps.append(timestamp)
 
                 line = res_file.readline()
-                line_data = line.split()
-                while not line.startswith("TIM"):
+                while line and not line.startswith("TIM"):
+                    # Columns are fixed-width; a large residual can butt up against
+                    # the neighboring field with no separating space (e.g.
+                    # "0.0000-1641.5825"), so split() is unsafe here. Slice by
+                    # position instead, but still guard against lines that are
+                    # short or otherwise malformed in some other way.
                     try:
-                        phase_residual = float(line_data[1])
-                        phase_weight = float(line_data[3].replace("D", "E"))
-                    except (ValueError, IndexError):
-                        # PRIDE-PPPAR writes residuals in fixed-width columns; an
-                        # unusually large value (e.g. an unresolved ambiguity) can
-                        # overflow its column and run into the neighbouring field
-                        # with no separating space (e.g. "0.0000-1641.5825"),
-                        # which breaks whitespace-based splitting. Skip just this
-                        # satellite's contribution rather than failing the epoch.
+                        phase_residual = float(line[3:13])
+                        phase_weight = float(line[23:39].replace("D", "E"))
+                    except ValueError:
                         logger.warning(
                             f"Skipping unparsable residual line in {res_path}: {line.strip()!r}"
                         )
@@ -97,9 +95,6 @@ def get_wrms_from_res(res_path):
                         sumOfSquares += phase_residual**2 * phase_weight
                         sumOfWeights += phase_weight
                     line = res_file.readline()
-                    if line == "":
-                        break
-                    line_data = line.split()
                 wrms = (sumOfSquares / sumOfWeights) ** 0.5 * 1000 if sumOfWeights else float("nan")  # in mm
                 data.append(wrms)
             else:
