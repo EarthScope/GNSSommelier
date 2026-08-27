@@ -44,7 +44,11 @@ dependencies:
     description: Observable-specific signal biases
 
   - spec: ATTOBX
-    required: true
+    # pdp3.sh tolerates a missing attitude product outright (sets
+    # Quaternions = NONE and skips multipath/attitude modeling) — no AC
+    # publishes ATTOBX faster than FIN/RAP (~1 day lag), so requiring it
+    # blocks same-day/near-real-time processing pdp3 could otherwise do.
+    required: false
     description: Satellite attitude quaternions (OBX)
 
   - spec: ATTATX
@@ -52,7 +56,11 @@ dependencies:
     description: Antenna phase center corrections (ANTEX)
 
   - spec: RNX3_BRDC
-    required: true
+    # pdp3.sh has its own same-day fallback (PrepareRinexNav): when the
+    # processing date is today, it merges hourly GPS+GLONASS nav from Wuhan
+    # instead of needing the daily merged multi-GNSS product. That fallback
+    # never runs if this wrapper aborts the day first for lacking it.
+    required: false
     description: Broadcast navigation RINEX 3
 
   - spec: LEAP_SEC

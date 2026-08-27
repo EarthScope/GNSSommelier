@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -211,6 +212,24 @@ class TestValidateKinfile:
         garbage = tmp_path / "kin_2021220_bako.kin"
         garbage.write_text("not a kin file\nno header here\n")
         assert processor._validate_kinfile(garbage) is False
+
+
+def test_resolve_forwards_product_download_override(processor: PrideProcessor) -> None:
+    processor._client = MagicMock()
+    processor._dep_spec = MagicMock()
+    processor._override_products_download = True
+    expected = MagicMock()
+    processor._client.resolve_dependencies.return_value = (expected, None)
+
+    result = processor._resolve(datetime.datetime(2026, 8, 27, tzinfo=datetime.timezone.utc))
+
+    assert result is expected
+    processor._client.resolve_dependencies.assert_called_once_with(
+        processor._dep_spec,
+        datetime.datetime(2026, 8, 27, tzinfo=datetime.timezone.utc),
+        sink_id="pride",
+        force_download=True,
+    )
 
 
 class TestRunPdp3:

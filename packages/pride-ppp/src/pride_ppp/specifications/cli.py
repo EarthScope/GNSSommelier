@@ -80,7 +80,7 @@ class PrideCLIConfig(BaseModel):
 
     sample_frequency: float = 1
     system: str = "GREC23J"
-    frequency: list = ["G12", "R12", "E15", "C26", "J12"]
+    frequency: list = ["G12", "R12", "E17", "C27", "J12"]
     loose_edit: bool = True
     cutoff_elevation: int = 7
     interval: float | None = None

@@ -271,11 +271,19 @@ def _resolution_to_satellite_products(
 
     return (
         SatelliteProducts(
-            satellite_orbit=product_fields.get("satellite_orbit"),
-            satellite_clock=product_fields.get("satellite_clock"),
-            code_phase_bias=product_fields.get("code_phase_bias"),
-            quaternions=product_fields.get("quaternions"),
-            erp=product_fields.get("erp"),
+            # .get(key, "Default") — not .get(key): a bare None here is passed
+            # to the pydantic model explicitly, which bypasses the field's own
+            # "Default" default and gets f-string'd into the config file as the
+            # literal text "None". pdp3.sh only recognizes "Default" as its
+            # let-me-resolve-it-myself sentinel, so "None" makes it try to
+            # download a product file literally named "None" and fail outright
+            # — worse than the missing-required abort this is meant to replace
+            # for optional specs like ATTOBX.
+            satellite_orbit=product_fields.get("satellite_orbit", "Default"),
+            satellite_clock=product_fields.get("satellite_clock", "Default"),
+            code_phase_bias=product_fields.get("code_phase_bias", "Default"),
+            quaternions=product_fields.get("quaternions", "Default"),
+            erp=product_fields.get("erp", "Default"),
             product_directory=str(product_dir) if product_dir else "Default",
         ),
         product_dir,
@@ -380,6 +388,7 @@ class PrideProcessor:
         pride_install_dir: Path | None = None,
         cli_config: PrideCLIConfig | None = PrideCLIConfig(),
         mode: ProcessingMode | Literal["FINAL", "DEFAULT"] = ProcessingMode.DEFAULT,
+        override_products_download: bool = False,
     ) -> None:
         """Initialise the processor and all its owned subsystems.
 
@@ -408,6 +417,8 @@ class PrideProcessor:
 
                 Also accepts the string literals ``"DEFAULT"`` or
                 ``"FINAL"`` for convenience.
+            override_products_download: Ignore product lockfiles and local
+                cached products, downloading fresh remote copies instead.
         """
         if isinstance(mode, str):
             mode = ProcessingMode(mode.upper())
@@ -416,6 +427,7 @@ class PrideProcessor:
         self._pride_install_dir = Path(pride_install_dir) if pride_install_dir else None
         self._cli_config = cli_config if cli_config is not None else PrideCLIConfig()
         self._mode = mode
+        self._override_products_download = override_products_download
 
         # Load the DependencySpec that matches the requested processing mode.
         # The dep-spec controls which TTT (timeliness) values the resolver
@@ -529,6 +541,7 @@ class PrideProcessor:
             self._dep_spec,
             date,
             sink_id=local_sink_id,
+            force_download=self._override_products_download,
         )
         return resolution
 
@@ -593,10 +606,28 @@ class PrideProcessor:
 
         Returns:
             ``(kin_path, res_path, returncode, stderr)`` where paths are
-            ``None`` when the corresponding output was not produced.
+            ``None`` when the corresponding output was not produced or
+            didn't pass validation (see below).
 
         Raises:
             FileNotFoundError: If the ``pdp3`` binary is not on ``PATH``.
+
+        Note:
+            ``pdp3`` can exit 0 and still leave a stale ``kin_*`` file
+            behind from an earlier, non-fatal stage (e.g. the initial
+            single-point-positioning seed file written before the real
+            ambiguity-resolution step) even when a later internal stage
+            fails outright. Trusting a bare filename-glob match would
+            silently accept that low-quality leftover as a successful
+            result, so two independent checks guard against it: (1)
+            ``pdp3.sh`` prints its own ``error:``-tagged lines to stdout on
+            a hard stage failure — distinct from its ``warning:`` lines for
+            recoverable conditions — which is scanned for regardless of
+            the process's own exit code; (2) any ``kin_*`` match found is
+            parsed with the same validator used to check cached output
+            (:func:`kin_to_kin_position_df`) before being trusted, since a
+            leftover seed file has a different (and much sparser) column
+            layout that fails to parse.
         """
         if not shutil.which("pdp3"):
             raise FileNotFoundError("pdp3 binary not found in PATH")
@@ -611,9 +642,9 @@ class PrideProcessor:
             )
 
             # Replay stdout/stderr through the logger for observability
-            if result.stdout:
-                for line in result.stdout.strip().splitlines():
-                    logger.info(line)
+            stdout_lines = result.stdout.strip().splitlines() if result.stdout else []
+            for line in stdout_lines:
+                logger.info(line)
             if result.stderr:
                 for line in result.stderr.strip().splitlines():
                     logger.warning(line)
@@ -627,6 +658,15 @@ class PrideProcessor:
                     stderr_tail or "(no stderr)",
                 )
 
+            pdp3_error_lines = [line for line in stdout_lines if "error:" in line.lower()]
+            if pdp3_error_lines:
+                logger.error(
+                    "pdp3 reported failure for site %s despite returncode %d: %s",
+                    site,
+                    result.returncode,
+                    " | ".join(pdp3_error_lines),
+                )
+
             # pdp3 writes outputs as e.g. "kin_2025254_ncc1" (no extension).
             # Search recursively in the working dir to find them.
             kin_files = list(Path(tmpdir).rglob(f"kin_*_{site.lower()}"))
@@ -638,20 +678,35 @@ class PrideProcessor:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Move outputs to the final output directory with proper extensions
-            if kin_files:
-                src = kin_files[0]
-                dst = output_dir / (src.name + ".kin")
-                shutil.move(str(src), str(dst))
-                kin_out = dst
-                logger.info("Generated kin file %s", dst)
-            else:
+            if not kin_files:
                 logger.error(
                     "pdp3 produced no kin output for site %s (returncode %d)",
                     site,
                     result.returncode,
                 )
+            elif pdp3_error_lines:
+                logger.error(
+                    "Discarding kin output for site %s: pdp3 reported an internal "
+                    "failure, so %s is likely an incomplete/seed-only leftover, "
+                    "not a real result.",
+                    site,
+                    kin_files[0].name,
+                )
+            elif kin_to_kin_position_df(kin_files[0]) is None:
+                logger.error(
+                    "Discarding kin output for site %s: %s exists but failed to "
+                    "parse as a valid kinematic position file.",
+                    site,
+                    kin_files[0].name,
+                )
+            else:
+                src = kin_files[0]
+                dst = output_dir / (src.name + ".kin")
+                shutil.move(str(src), str(dst))
+                kin_out = dst
+                logger.info("Generated kin file %s", dst)
 
-            if res_files:
+            if kin_out is not None and res_files:
                 src = res_files[0]
                 dst = output_dir / (src.name + ".res")
                 shutil.move(str(src), str(dst))
