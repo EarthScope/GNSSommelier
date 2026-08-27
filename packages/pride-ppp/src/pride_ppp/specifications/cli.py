@@ -149,7 +149,9 @@ class PrideCLIConfig(BaseModel):
             command.extend(["--system", self.system])
 
         if self.frequency != ["G12", "R12", "E15", "C26", "J12"]:
-            command.extend(["--frequency", " ".join(self.frequency)])
+            # pdp3.sh consumes each three-character frequency combination as
+            # a separate argv item until it reaches the next option.
+            command.extend(["--frequency", *self.frequency])
 
         if self.loose_edit:
             command.append("--loose-edit")
