@@ -80,7 +80,7 @@ class PrideCLIConfig(BaseModel):
 
     sample_frequency: float = 1
     system: str = "GREC23J"
-    frequency: list = ["G12", "R12", "E15", "C26", "J12"]
+    frequency: list = ["G12", "R12", "E17", "C27", "J12"]
     loose_edit: bool = True
     cutoff_elevation: int = 7
     interval: float | None = None
@@ -149,7 +149,9 @@ class PrideCLIConfig(BaseModel):
             command.extend(["--system", self.system])
 
         if self.frequency != ["G12", "R12", "E15", "C26", "J12"]:
-            command.extend(["--frequency", " ".join(self.frequency)])
+            # pdp3.sh consumes each three-character frequency combination as
+            # a separate argv item until it reaches the next option.
+            command.extend(["--frequency", *self.frequency])
 
         if self.loose_edit:
             command.append("--loose-edit")

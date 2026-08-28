@@ -2,16 +2,22 @@
 
 import logging
 import os
+import re
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import fsspec
 import fsspec.utils
 
 logger = logging.getLogger(__name__)
+
+_AIUB_DOWNLOAD_ROOT = "https://www.aiub.unibe.ch/download"
+_AIUB_LISTING_ENDPOINT = (
+    "https://code.aiub.unibe.ch/s3_script/aiub_s3_bucket_listing.php?path="
+)
 
 
 class ConnectionPool:
@@ -249,6 +255,17 @@ class ConnectionPoolFactory:
         full_path = pool.full_path(directory)
 
         def _ls(conn: "fsspec.AbstractFileSystem") -> list[str]:
+            if hostname.rstrip("/") == _AIUB_DOWNLOAD_ROOT:
+                listing_url = _AIUB_LISTING_ENDPOINT + quote(directory.strip("/"), safe="/")
+                html = conn.cat_file(listing_url)
+                if isinstance(html, bytes):
+                    html = html.decode("utf-8", errors="replace")
+                download_prefix = re.escape(
+                    f'{_AIUB_DOWNLOAD_ROOT}/{directory.strip("/")}/'
+                )
+                return sorted(
+                    set(re.findall(rf'href="{download_prefix}([^"/]+)"', html))
+                )
             raw = conn.ls(full_path, detail=False)
             return [Path(p).name for p in raw]
 

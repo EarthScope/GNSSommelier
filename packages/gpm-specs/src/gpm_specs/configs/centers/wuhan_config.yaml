@@ -16,7 +16,12 @@ products:
     product_name: ORBIT
     server_id: wuhan_ftp
     available: true
-    description: Precise satellite orbits
+    description: >
+      Precise satellite orbits. No TTT filter, so this already matches
+      RTS (Real-Time Service) candidates alongside FIN/RAP; TTT sorting
+      in pride_pppar.yaml doesn't list RTS, so those candidates just
+      sort last. See wuhan_clock for why CLOCK/ERP/BIA need an explicit
+      TTT: RTS entry to get the same behavior.
     parameters:
       - {name: AAA, value: WUM}
       - {name: AAA, value: WMC}
@@ -92,16 +97,25 @@ products:
     product_name: CLOCK
     server_id: wuhan_ftp
     available: true
-    description: Precise satellite and station clocks
+    description: >
+      Precise satellite and station clocks. Includes RTS (Real-Time
+      Service), WUM's own near-real-time product line — no FIN/RAP is
+      published yet for the most recent 1-3 days, and this is the same
+      fallback PRIDE-PPPAR's pdp3.sh uses natively for recent days
+      (USERTS=YES). TTT sorting in pride_pppar.yaml only lists
+      FIN/RAP/ULT, so RTS candidates naturally sort last without
+      needing a preference entry.
     parameters:
       - {name: AAA, value: WUM}
       - {name: AAA, value: WMC}
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
+      - {name: TTT, value: RTS}
       - {name: PPP, value: MGX}
       - {name: PPP, value: DEM}
       - {name: SMP, value: 30S}
       - {name: SMP, value: 05M}
+      - {name: SMP, value: 05S}
     directory: {pattern: "pub/whu/phasebias/{YYYY}/clock/"}
 
   # ── ERP ─────────────────────────────────────────────────────────
@@ -109,11 +123,13 @@ products:
     product_name: ERP
     server_id: wuhan_ftp
     available: true
-    description: Earth rotation parameters
+    description: >
+      Earth rotation parameters. Includes RTS (see wuhan_clock note).
     parameters:
       - {name: AAA, value: WUM}
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
+      - {name: TTT, value: RTS}
       - {name: PPP, value: MGX}
     directory: {pattern: "pub/whu/phasebias/{YYYY}/orbit/"}
 
@@ -122,12 +138,15 @@ products:
     product_name: BIA
     server_id: wuhan_ftp
     available: true
-    description: Observable-specific signal biases (OSB)
+    description: >
+      Observable-specific signal biases (OSB). Includes RTS (see
+      wuhan_clock note).
     parameters:
       - {name: AAA, value: WUM}
       - {name: AAA, value: WMC}
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
+      - {name: TTT, value: RTS}
       - {name: PPP, value: MGX}
       - {name: PPP, value: DEM}
     directory: {pattern: "pub/whu/phasebias/{YYYY}/bias/"}
