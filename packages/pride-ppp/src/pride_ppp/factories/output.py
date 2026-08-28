@@ -7,7 +7,7 @@ validating pdp3 output.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -59,22 +59,18 @@ def get_wrms_from_res(res_path):
                 sumOfSquares = 0
                 sumOfWeights = 0
 
-                seconds_str = line_data[6]
-                if "." in seconds_str:
-                    SS, fractional = seconds_str.split(".")
-                    SS = int(SS)
-                    fractional = fractional.ljust(6, "0")[:6]
-                else:
-                    SS = int(seconds_str)
-                    fractional = "000000"
-
-                isodate = (
-                    f"{line_data[1]}-{line_data[2].zfill(2)}-{line_data[3].zfill(2)}"
-                    f"T{line_data[4].zfill(2)}:{line_data[5].zfill(2)}:{str(SS).zfill(2)}"
-                    f".{fractional}+00:00"
-                )
-
-                timestamp = datetime.fromisoformat(isodate)
+                # PRIDE occasionally formats a rounded epoch with seconds
+                # equal to 60.0000000.  Constructing an ISO timestamp with
+                # second=60 is invalid; adding the seconds as a timedelta
+                # correctly carries it into the following minute/day.
+                timestamp = datetime(
+                    int(line_data[1]),
+                    int(line_data[2]),
+                    int(line_data[3]),
+                    int(line_data[4]),
+                    int(line_data[5]),
+                    tzinfo=timezone.utc,
+                ) + timedelta(seconds=float(line_data[6]))
                 timestamps.append(timestamp)
 
                 line = res_file.readline()
