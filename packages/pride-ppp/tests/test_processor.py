@@ -18,18 +18,28 @@ import pytest
 try:
     from gnss_product_management.specifications.dependencies.dependencies import (
         DependencyResolution,
+        DependencySpec,
         ResolvedDependency,
     )
 except ImportError as e:
     pytest.skip(f"gnss-product-management not installed: {e}", allow_module_level=True)
 
 from pride_ppp.factories import processor as processor_module
+from pride_ppp.defaults import PRIDE_PPPAR_SPEC
 from pride_ppp.factories.processor import (
     MissingProductsError,
     PrideProcessor,
     _resolution_to_satellite_products,
     _resolution_to_table_dir,
 )
+
+
+def test_default_product_timeliness_prefers_rts_over_rap() -> None:
+    """RTS should win over RAP so near-real-time Galileo E17 has phase biases."""
+    spec = DependencySpec.from_yaml(PRIDE_PPPAR_SPEC)
+    timeliness = next(p for p in spec.preferences if p.parameter == "TTT")
+
+    assert timeliness.sorting == ["FIN", "RTS", "RAP", "ULT"]
 
 
 @pytest.fixture

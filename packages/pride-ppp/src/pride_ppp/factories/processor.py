@@ -66,7 +66,7 @@ class ProcessingMode(enum.Enum):
 
     Selects which dependency-spec YAML governs which products are accepted.
 
-    * ``DEFAULT`` — cascades through FIN → RAP → ULT.  Uses the best
+    * ``DEFAULT`` — cascades through FIN → RTS → RAP → ULT. Uses the best
       available product at run time.  Suitable for near-real-time processing
       or when the observation date is within the last two weeks.
     * ``FINAL``   — accepts only IGS final (FIN) products (available ≥13 days
@@ -403,7 +403,7 @@ class PrideProcessor:
             mode: Product timeliness mode.  Selects which dependency-spec
                 YAML governs product resolution:
 
-                * ``ProcessingMode.DEFAULT`` — FIN → RAP → ULT cascade.
+                * ``ProcessingMode.DEFAULT`` — FIN → RTS → RAP → ULT cascade.
                 * ``ProcessingMode.FINAL``   — only FINAL products.
 
                 Also accepts the string literals ``"DEFAULT"`` or
