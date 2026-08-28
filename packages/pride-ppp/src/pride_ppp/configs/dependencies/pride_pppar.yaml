@@ -22,9 +22,11 @@ preferences:
     description: >
       Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
   - parameter: TTT
-    sorting: [FIN, RAP, ULT]
+    sorting: [FIN, RTS, RAP, ULT]
     description: >
-      Prefer final solutions, then rapid, then ultra-rapid.
+      Prefer final solutions, then Wuhan real-time streaming products,
+      then rapid and ultra-rapid products. RTS biases include the Galileo
+      phase signals needed for E17 processing before RAP products do.
 
 dependencies:
   - spec: ORBIT
