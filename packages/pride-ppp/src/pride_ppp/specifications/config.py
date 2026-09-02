@@ -222,61 +222,44 @@ class SatelliteProducts(BaseModel):
         default="Default",
         description="Directory for satellite products",
     )
+    # Patterns accept the literal "Default" as well as a real filename: pdp3.sh
+    # compares this field's raw config-file text with `!= Default` to decide
+    # whether to resolve the product itself, so the sentinel has to survive
+    # into the file unchanged. A previous version of this pattern only
+    # accepted a real filename and relied on a validator to rewrite "Default"
+    # to e.g. "Default.OBX" to satisfy it — but that rewritten value then got
+    # written to the config file as-is, which pdp3.sh's strict `!= Default`
+    # check doesn't recognize, so it would try to fetch a file literally named
+    # "Default.OBX" instead of self-resolving.
     satellite_orbit: str | None = Field(
         default="Default",
-        pattern=r".*\.SP3",
+        pattern=r"^Default$|.*\.SP3",
         description="File name of SP3 file",
     )
     satellite_clock: str | None = Field(
         default="Default",
-        pattern=r".*\.CLK",
+        pattern=r"^Default$|.*\.CLK",
         description="File name of CLK file",
     )
     erp: str | None = Field(
         default="Default",
-        pattern=r".*\.ERP",
+        pattern=r"^Default$|.*\.ERP",
         description="File name of ERP file",
     )
     quaternions: str | None = Field(
         default="Default",
-        pattern=r".*\.OBX",
+        pattern=r"^Default$|.*\.OBX",
         description="File name of quaternions file",
     )
     code_phase_bias: str | None = Field(
         default="Default",
-        pattern=r".*\.BIA",
+        pattern=r"^Default$|.*\.BIA",
         description="File name of code/phase bias file",
     )
     leo_quaternions: str | None = Field(
         default="Default",
         description="File name of LEO quaternions file",
     )
-
-    @field_validator(
-        "satellite_orbit",
-        "satellite_clock",
-        "erp",
-        "quaternions",
-        "code_phase_bias",
-        mode="before",
-    )
-    def override_patternmatch(cls, value: str, field) -> str:
-        """Set default file extension when value is ``'Default'``."""
-        if value != "Default":
-            return value
-        match field.field_name:
-            case "satellite_orbit":
-                return "Default.SP3"
-            case "satellite_clock":
-                return "Default.CLK"
-            case "erp":
-                return "Default.ERP"
-            case "quaternions":
-                return "Default.OBX"
-            case "code_phase_bias":
-                return "Default.BIA"
-            case _:
-                return value
 
 
 class DataProcessingStrategies(BaseModel):

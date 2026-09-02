@@ -94,6 +94,7 @@ class ResolvePipeline:
         sink_id: str = "local_config",
         centers: list[str] | None = None,
         download: bool = True,
+        force_download: bool = False,
     ) -> tuple[DependencyResolution, AnyPath | None]:
         """Resolve all dependencies in *spec* for *date*.
 
@@ -126,7 +127,7 @@ class ResolvePipeline:
             date=date,
             version=version,
         )
-        if existing is not None:
+        if existing is not None and not force_download:
             resolution = self._resolution_from_lockfile(existing, spec)
             if resolution.all_required_fulfilled:
                 logger.info(
@@ -151,6 +152,7 @@ class ResolvePipeline:
             preferences=spec.preferences,
             centers=centers,
             download=download,
+            force_download=force_download,
         )
         with ThreadPoolExecutor(max_workers=15) as executor:
             resolved = list(executor.map(resolve_one, spec.dependencies))
@@ -176,6 +178,7 @@ class ResolvePipeline:
         preferences: list[SearchPreference],
         centers: list[str] | None,
         download: bool,
+        force_download: bool,
     ) -> ResolvedDependency:
         """Resolve a single dependency.
 
@@ -201,7 +204,10 @@ class ResolvePipeline:
             if centers:
                 q = q.sources(*centers)
             candidates = q.search()
-            found: FoundResource | None = candidates[0] if candidates else None
+            if force_download:
+                found = next((candidate for candidate in candidates if not candidate.is_local), None)
+            else:
+                found = candidates[0] if candidates else None
         except Exception as exc:
             logger.debug("No candidates for %s: %s", dep.spec, exc)
             return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
@@ -227,7 +233,7 @@ class ResolvePipeline:
                 remote_url=found.uri,
             )
 
-        path = self._downloader.run(found, date, sink_id=sink_id)
+        path = self._downloader.run(found, date, sink_id=sink_id, force=force_download)
         if path is None:
             logger.warning("Download failed for dependency %s", dep.spec)
             return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")

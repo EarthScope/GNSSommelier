@@ -299,6 +299,8 @@ class WormHole:
         local_resource_id: str,
         local_factory: WorkSpace,
         date: datetime.datetime,
+        *,
+        force: bool = False,
     ) -> AnyPath | None:
         """Synchronously download matched files for one search target.
 
@@ -329,10 +331,13 @@ class WormHole:
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination_path = destination_dir / query.product.filename.value  # type: ignore[union-attr]
 
-        # Prefer an already-decompressed version on disk
+        # Prefer an already-decompressed version on disk unless the caller
+        # explicitly requested a fresh copy from the remote source.
         if destination_path.suffix == ".gz":
             decompressed_path = destination_path.with_suffix("")
             if (
+                not force
+                and
                 decompressed_path.exists()
                 and decompressed_path.stat().st_size > 0
                 and self._validate_cached_or_evict(decompressed_path)
@@ -348,6 +353,8 @@ class WormHole:
         # describes the file as served, so it only applies to the
         # non-decompressed destination path.
         if (
+            not force
+            and
             destination_path.exists()
             and destination_path.stat().st_size > 0
             and self._validate_cached_or_evict(destination_path, query.checksum)

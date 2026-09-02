@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -223,6 +224,24 @@ class TestValidateKinfile:
         assert processor._validate_kinfile(garbage) is False
 
 
+def test_resolve_forwards_product_download_override(processor: PrideProcessor) -> None:
+    processor._client = MagicMock()
+    processor._dep_spec = MagicMock()
+    processor._override_products_download = True
+    expected = MagicMock()
+    processor._client.resolve_dependencies.return_value = (expected, None)
+
+    result = processor._resolve(datetime.datetime(2026, 8, 27, tzinfo=datetime.timezone.utc))
+
+    assert result is expected
+    processor._client.resolve_dependencies.assert_called_once_with(
+        processor._dep_spec,
+        datetime.datetime(2026, 8, 27, tzinfo=datetime.timezone.utc),
+        sink_id="pride",
+        force_download=True,
+    )
+
+
 class TestRunPdp3:
     """Subprocess handling in _run_pdp3, exercised via a fake pdp3 on PATH."""
 
@@ -266,6 +285,22 @@ class TestRunPdp3:
         assert "boom" in stderr
         assert any("pdp3 exited with code 2" in m for m in caplog.messages)
         assert any("produced no kin output" in m for m in caplog.messages)
+
+    def test_non_utf8_process_output_does_not_abort_job(
+        self, fake_pdp3, tmp_path: Path, caplog
+    ) -> None:
+        fake_pdp3("printf '\\200bad output\\n'; exit 2")
+        out = tmp_path / "out"
+
+        with caplog.at_level(logging.INFO, logger="pride_ppp.factories.processor"):
+            kin, res, rc, stderr = PrideProcessor._run_pdp3(
+                command=["pdp3"], site="NCC1", output_dir=out
+            )
+
+        assert rc == 2
+        assert kin is None and res is None
+        assert stderr == ""
+        assert any("bad output" in message for message in caplog.messages)
 
 
 def _unfulfilled_resolution() -> DependencyResolution:
