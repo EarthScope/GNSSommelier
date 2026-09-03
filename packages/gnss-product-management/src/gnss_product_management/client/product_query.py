@@ -348,6 +348,13 @@ class ProductQuery:
                 continue
             seen[key] = True
             params = {p.name: p.value for p in rq.product.parameters if p.value is not None}
+            # Search targets may retain wildcard regexes for unconstrained
+            # filename axes (for example TTT/PPP on Wuhan ORBIT).  Replace
+            # those patterns with metadata parsed from the actual match so
+            # callers can group candidates by their real product family.
+            classified = self._search_planner._product_registry.classify(filename)
+            if classified and classified.get("product") == rq.product.name:
+                params.update(classified.get("parameters", {}))
             protocol = (rq.server.protocol or "").upper()
             is_local = protocol in ("FILE", "LOCAL")
             if is_local:

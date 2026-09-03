@@ -9,14 +9,20 @@ PRIDE-PPPAR dependency spec.
 
 from __future__ import annotations
 
+import datetime
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from gnss_product_management.environments import WorkSpace
+from gnss_product_management.factories.models import FoundResource
 from gnss_product_management.factories.pipelines.resolve import ResolvePipeline
 from gnss_product_management.specifications.dependencies.dependencies import (
+    Dependency,
+    DependencyBundle,
     DependencySpec,
     ResolvedDependency,
+    SearchPreference,
 )
 
 # ── Paths ──────────────────────────────────────────────────────────
@@ -98,6 +104,164 @@ class TestDependencySpecLoading:
 class TestPipelineConstruction:
     def test_pipeline_builds(self, pipeline) -> None:
         assert pipeline is not None
+
+
+class TestSelectiveForceDownload:
+    @staticmethod
+    def _pipeline_with_candidates(candidates):
+        pipeline = ResolvePipeline.__new__(ResolvePipeline)
+        query = MagicMock()
+        query.for_product.return_value.on.return_value = query
+        query.search.return_value = candidates
+        pipeline._query = query
+        pipeline._downloader = MagicMock()
+        pipeline._downloader.run.return_value = Path("/tmp/downloaded.product")
+        return pipeline
+
+    def test_force_keeps_non_refreshable_bundled_product(self, tmp_path) -> None:
+        table = tmp_path / "igs20.atx"
+        table.write_text("static")
+        local = FoundResource(product="ATTATX", source="local", uri=str(table))
+        remote = FoundResource(
+            product="ATTATX", source="remote", uri="https://example.test/igs20.atx"
+        )
+        pipeline = self._pipeline_with_candidates([local, remote])
+
+        result = pipeline._resolve_one(
+            Dependency(spec="ATTATX", refresh_on_force=False),
+            date=datetime.datetime(2026, 8, 19, tzinfo=datetime.UTC),
+            sink_id="local_config",
+            preferences=[],
+            centers=None,
+            download=True,
+            force_download=True,
+        )
+
+        assert result.status == "local"
+        pipeline._downloader.run.assert_not_called()
+
+    def test_force_refreshes_mutable_remote_product(self, tmp_path) -> None:
+        clock = tmp_path / "clock.CLK"
+        clock.write_text("cached")
+        local = FoundResource(product="CLOCK", source="local", uri=str(clock))
+        remote = FoundResource(
+            product="CLOCK", source="remote", uri="https://example.test/clock.CLK"
+        )
+        pipeline = self._pipeline_with_candidates([local, remote])
+
+        result = pipeline._resolve_one(
+            Dependency(spec="CLOCK"),
+            date=datetime.datetime(2026, 8, 19, tzinfo=datetime.UTC),
+            sink_id="local_config",
+            preferences=[],
+            centers=None,
+            download=True,
+            force_download=True,
+        )
+
+        assert result.status == "downloaded"
+        selected = pipeline._downloader.run.call_args.args[0]
+        assert selected.uri == remote.uri
+        assert pipeline._downloader.run.call_args.kwargs["force"] is True
+
+
+class TestCoherentBundles:
+    date = datetime.datetime(2026, 8, 19, tzinfo=datetime.UTC)
+    preferences = [
+        SearchPreference(parameter="AAA", sorting=["WUM"]),
+        SearchPreference(parameter="TTT", sorting=["RTS", "RAP"]),
+    ]
+    bundle = DependencyBundle(
+        name="precise-products",
+        members=["ORBIT", "CLOCK", "ATTOBX"],
+        coherence=["AAA", "TTT", "PPP"],
+    )
+
+    @staticmethod
+    def _candidate(product: str, timeliness: str) -> FoundResource:
+        return FoundResource(
+            product=product,
+            source="remote",
+            uri=f"https://example.test/{timeliness}/{product}",
+            parameters={"AAA": "WUM", "TTT": timeliness, "PPP": "MGX"},
+        )
+
+    @staticmethod
+    def _pipeline(search_results: dict[str, list[FoundResource]]) -> ResolvePipeline:
+        pipeline = ResolvePipeline.__new__(ResolvePipeline)
+        pipeline._search_candidates = lambda dep, **kwargs: search_results[dep.spec]
+        pipeline._downloader = MagicMock()
+        pipeline._downloader.run.side_effect = lambda found, *args, **kwargs: Path(
+            f"/tmp/{found.quality}-{found.product}"
+        )
+        return pipeline
+
+    def test_incomplete_families_are_not_mixed(self) -> None:
+        pipeline = self._pipeline(
+            {
+                "ORBIT": [self._candidate("ORBIT", "RTS")],
+                "CLOCK": [self._candidate("CLOCK", "RAP")],
+                "ATTOBX": [],
+            }
+        )
+        dependencies = {
+            "ORBIT": Dependency(spec="ORBIT"),
+            "CLOCK": Dependency(spec="CLOCK"),
+            "ATTOBX": Dependency(spec="ATTOBX", required=False),
+        }
+
+        results = pipeline._resolve_bundle(
+            self.bundle,
+            dependencies,
+            date=self.date,
+            sink_id="local_config",
+            preferences=self.preferences,
+            centers=None,
+            download=True,
+            force_download=True,
+        )
+
+        assert all(result.status == "missing" for result in results)
+        pipeline._downloader.run.assert_not_called()
+
+    def test_required_failure_falls_back_as_a_whole(self) -> None:
+        search_results = {
+            product: [
+                self._candidate(product, "RTS"),
+                self._candidate(product, "RAP"),
+            ]
+            for product in ("ORBIT", "CLOCK", "ATTOBX")
+        }
+        pipeline = self._pipeline(search_results)
+
+        def download(found, *args, **kwargs):
+            if found.product == "CLOCK" and found.quality == "RTS":
+                return None
+            return Path(f"/tmp/{found.quality}-{found.product}")
+
+        pipeline._downloader.run.side_effect = download
+        dependencies = {
+            "ORBIT": Dependency(spec="ORBIT"),
+            "CLOCK": Dependency(spec="CLOCK"),
+            "ATTOBX": Dependency(spec="ATTOBX", required=False),
+        }
+
+        results = pipeline._resolve_bundle(
+            self.bundle,
+            dependencies,
+            date=self.date,
+            sink_id="local_config",
+            preferences=self.preferences,
+            centers=None,
+            download=True,
+            force_download=True,
+        )
+
+        assert all(result.status == "downloaded" for result in results)
+        assert all("/RAP/" in result.remote_url for result in results)
+        downloaded_urls = [call.args[0].uri for call in pipeline._downloader.run.call_args_list]
+        assert "https://example.test/RTS/ORBIT" in downloaded_urls
+        assert "https://example.test/RAP/ORBIT" in downloaded_urls
 
 
 # ===================================================================

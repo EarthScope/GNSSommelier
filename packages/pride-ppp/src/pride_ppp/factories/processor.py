@@ -51,6 +51,7 @@ from ..defaults import (
 from ..specifications.cli import PrideCLIConfig
 from ..specifications.config import PRIDEPPPFileConfig, SatelliteProducts
 from .output import get_wrms_from_res, kin_to_kin_position_df
+from .product_validation import validate_pride_products
 from .rinex import rinex_get_time_range
 
 logger = logging.getLogger(__name__)
@@ -520,6 +521,7 @@ class PrideProcessor:
         self,
         date: datetime.datetime,
         local_sink_id: str = "pride",
+        centers: list[str] | None = None,
     ) -> DependencyResolution:
         """Resolve all dependencies for a single UTC date.
 
@@ -532,18 +534,44 @@ class PrideProcessor:
             date: Target date (midnight UTC) for product resolution.
             local_sink_id: WorkSpace alias that receives downloaded files.
                 Defaults to ``"pride"`` which maps to ``self._pride_dir``.
+            centers: Optional analysis-center resource IDs to search.  Primarily
+                useful for targeted diagnostics and controlled processing.
 
         Returns:
             A :class:`DependencyResolution` containing fulfilled and missing
             product entries.
         """
-        resolution, _ = self._client.resolve_dependencies(
-            self._dep_spec,
-            date,
-            sink_id=local_sink_id,
-            force_download=self._override_products_download,
-        )
+        kwargs = {
+            "sink_id": local_sink_id,
+            "force_download": self._override_products_download,
+        }
+        if centers is not None:
+            kwargs["bundle_centers"] = centers
+        resolution, _ = self._client.resolve_dependencies(self._dep_spec, date, **kwargs)
         return resolution
+
+    def _add_product_diagnostics(
+        self, rinex_paths: Sequence[Path], resolution: DependencyResolution
+    ) -> None:
+        """Attach non-fatal product coverage diagnostics to a resolution."""
+        try:
+            cli_config = getattr(self, "_cli_config", None) or PrideCLIConfig()
+            messages = validate_pride_products(
+                rinex_paths,
+                resolution,
+                cli_config.frequency,
+            )
+        except (OSError, ValueError) as exc:
+            messages = [f"Product compatibility diagnostics unavailable: {exc}"]
+        resolution.diagnostics.extend(messages)
+        for message in messages:
+            if any(
+                marker in message
+                for marker in ("partial", "not present", "could not", "unavailable")
+            ):
+                logger.warning("Product compatibility: %s", message)
+            else:
+                logger.info("Product compatibility: %s", message)
 
     # ------------------------------------------------------------------ #
     # Directory helpers
@@ -845,6 +873,7 @@ class PrideProcessor:
         # --- 2. Resolve products ----------------------------------------------
         logger.info("Resolving products for %s (site=%s)", start_date, site)
         resolution = self._resolve(target_dt)
+        self._add_product_diagnostics([rinex], resolution)
         logger.info(resolution.summary())
 
         # --- 3. Check cache ---------------------------------------------------
@@ -968,6 +997,7 @@ class PrideProcessor:
         jobs_sorted = sorted(jobs, key=lambda j: j[2])
         resolutions: dict[datetime.date, DependencyResolution] = {}
         for date_key, group in groupby(jobs_sorted, key=lambda j: j[2]):
+            date_jobs = list(group)
             target_dt = datetime.datetime(
                 date_key.year,
                 date_key.month,
@@ -976,6 +1006,9 @@ class PrideProcessor:
             )
             logger.info("Resolving products for %s", date_key)
             resolutions[date_key] = self._resolve(target_dt)
+            self._add_product_diagnostics(
+                [rinex for rinex, _site, _date in date_jobs], resolutions[date_key]
+            )
             logger.info(resolutions[date_key].summary())
 
         # --- Step 3: Write per-date config files in year/doy dirs ---------------

@@ -2,12 +2,16 @@
 
 import logging
 import os
+import random
 import re
+import shutil
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 import fsspec
 import fsspec.utils
@@ -15,9 +19,7 @@ import fsspec.utils
 logger = logging.getLogger(__name__)
 
 _AIUB_DOWNLOAD_ROOT = "https://www.aiub.unibe.ch/download"
-_AIUB_LISTING_ENDPOINT = (
-    "https://code.aiub.unibe.ch/s3_script/aiub_s3_bucket_listing.php?path="
-)
+_AIUB_LISTING_ENDPOINT = "https://code.aiub.unibe.ch/s3_script/aiub_s3_bucket_listing.php?path="
 
 
 class ConnectionPool:
@@ -260,12 +262,8 @@ class ConnectionPoolFactory:
                 html = conn.cat_file(listing_url)
                 if isinstance(html, bytes):
                     html = html.decode("utf-8", errors="replace")
-                download_prefix = re.escape(
-                    f'{_AIUB_DOWNLOAD_ROOT}/{directory.strip("/")}/'
-                )
-                return sorted(
-                    set(re.findall(rf'href="{download_prefix}([^"/]+)"', html))
-                )
+                download_prefix = re.escape(f"{_AIUB_DOWNLOAD_ROOT}/{directory.strip('/')}/")
+                return sorted(set(re.findall(rf'href="{download_prefix}([^"/]+)"', html)))
             raw = conn.ls(full_path, detail=False)
             return [Path(p).name for p in raw]
 
@@ -352,6 +350,30 @@ class ConnectionPoolFactory:
         filename = Path(remote_path).name
         local_path = Path(target_dir) / filename
 
+        # GithubFileSystem's Contents API path can return only the first 4 MiB
+        # of larger blobs.  Use GitHub's immutable raw-content endpoint for
+        # the actual transfer while retaining GithubFileSystem for listings.
+        if pool.protocol == "github":
+            match = re.fullmatch(r"github://([^:]+):([^@]+)@(.+)", hostname)
+            if match:
+                owner, repository, revision = match.groups()
+                raw_url = (
+                    f"https://raw.githubusercontent.com/{owner}/{repository}/"
+                    f"{revision}/{remote_path.lstrip('/')}"
+                )
+                try:
+                    request = Request(raw_url, headers={"Accept-Encoding": "identity"})
+                    with (
+                        urlopen(request, timeout=60) as source,
+                        local_path.open("wb") as destination,
+                    ):
+                        shutil.copyfileobj(source, destination, length=1024 * 1024)
+                    return local_path if local_path.stat().st_size > 0 else None
+                except Exception as exc:
+                    logger.warning("Raw GitHub download failed for %s: %s", raw_url, exc)
+                    local_path.unlink(missing_ok=True)
+                    return None
+
         def _get(conn: "fsspec.AbstractFileSystem") -> Path | None:
             conn.get(full_path, str(local_path))
             if local_path.exists() and local_path.stat().st_size > 0:
@@ -365,6 +387,8 @@ class ConnectionPoolFactory:
                 return _get(conn)
             except (BrokenPipeError, ConnectionError, EOFError, OSError) as e:
                 logger.debug("Stale connection for %s, reconnecting: %s", hostname, e)
+                if pool.protocol != "file":
+                    time.sleep(random.uniform(1.0, 3.0))
                 fresh = pool.replace_connection(conn)
                 if fresh is None:
                     return None

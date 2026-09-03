@@ -2,7 +2,10 @@
 
 import datetime
 import logging
+import random
 import re
+import threading
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -64,6 +67,8 @@ class WormHole:
         """
         self._connection_pool_factory = ConnectionPoolFactory(max_connections=max_connections)
         self._product_registry = product_registry
+        self._failed_downloads: set[tuple[str, str]] = set()
+        self._failed_downloads_lock = threading.Lock()
 
     # -- Public API ------------------------------------------------
 
@@ -337,8 +342,7 @@ class WormHole:
             decompressed_path = destination_path.with_suffix("")
             if (
                 not force
-                and
-                decompressed_path.exists()
+                and decompressed_path.exists()
                 and decompressed_path.stat().st_size > 0
                 and self._validate_cached_or_evict(decompressed_path)
             ):
@@ -354,8 +358,7 @@ class WormHole:
         # non-decompressed destination path.
         if (
             not force
-            and
-            destination_path.exists()
+            and destination_path.exists()
             and destination_path.stat().st_size > 0
             and self._validate_cached_or_evict(destination_path, query.checksum)
         ):
@@ -365,15 +368,27 @@ class WormHole:
         remote_file_path = str(
             Path(query.directory.value) / query.product.filename.value  # type: ignore[union-attr]
         )
+        failure_key = (hostname, remote_file_path)
+        with self._failed_downloads_lock:
+            if failure_key in self._failed_downloads:
+                logger.info("Skipping product that already failed this run: %s", remote_file_path)
+                return None
+
+        if force:
+            logger.info("Refreshing mutable cached product: %s", destination_path.name)
 
         # Skip download if the remote file is zero bytes (stale/incomplete upload).
         remote_size = self._connection_pool_factory.get_file_size(hostname, remote_file_path)
         if remote_size is not None and remote_size == 0:
             logger.warning("Skipping zero-byte remote file: %s/%s", hostname, remote_file_path)
+            with self._failed_downloads_lock:
+                self._failed_downloads.add(failure_key)
             return None
 
         result: Path | None = None
         for attempt in range(2):
+            if attempt and fsspec.utils.get_protocol(hostname) != "file":
+                time.sleep(random.uniform(1.0, 3.0))
             try:
                 result = self._connection_pool_factory.download_file(
                     hostname=hostname,
@@ -388,8 +403,12 @@ class WormHole:
                     query.product.filename.value,
                     e,
                 )
+                with self._failed_downloads_lock:
+                    self._failed_downloads.add(failure_key)
                 return None
             if result is None:
+                with self._failed_downloads_lock:
+                    self._failed_downloads.add(failure_key)
                 return None
             # Truncated/corrupt transfers must never be left on disk where
             # a later run would treat them as satisfied dependencies.
@@ -415,7 +434,12 @@ class WormHole:
             result = None
 
         if result is None:
+            with self._failed_downloads_lock:
+                self._failed_downloads.add(failure_key)
             return None
+
+        with self._failed_downloads_lock:
+            self._failed_downloads.discard(failure_key)
 
         # Decompress gzip files after download
         if result.suffix == ".gz":

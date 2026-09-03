@@ -9,6 +9,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+PRIDE_NATIVE_FREQUENCIES = ("G12", "R12", "E15", "C26", "J12")
+DEFAULT_FREQUENCIES = ("G12", "R12", "E17", "C27", "J12")
+
 
 class Constellations(str, Enum):
     """GNSS constellation identifiers for pdp3 ``--system`` flag."""
@@ -80,7 +83,7 @@ class PrideCLIConfig(BaseModel):
 
     sample_frequency: float = 1
     system: str = "GREC23J"
-    frequency: list = ["G12", "R12", "E17", "C27", "J12"]
+    frequency: list[str] = Field(default_factory=lambda: list(DEFAULT_FREQUENCIES))
     loose_edit: bool = True
     cutoff_elevation: int = 7
     interval: float | None = None
@@ -148,7 +151,9 @@ class PrideCLIConfig(BaseModel):
         if self.system != "GREC23J":
             command.extend(["--system", self.system])
 
-        if self.frequency != ["G12", "R12", "E15", "C26", "J12"]:
+        # Our E1/E5b and B1/B2 defaults intentionally differ from pdp3's
+        # native E1/E5a and B1/B3 defaults, so they must be passed explicitly.
+        if tuple(self.frequency) != PRIDE_NATIVE_FREQUENCIES:
             # pdp3.sh consumes each three-character frequency combination as
             # a separate argv item until it reaches the next option.
             command.extend(["--frequency", *self.frequency])

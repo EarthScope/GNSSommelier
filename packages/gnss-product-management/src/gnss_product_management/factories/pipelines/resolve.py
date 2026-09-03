@@ -15,11 +15,10 @@ from __future__ import annotations
 
 import datetime
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 
 from gnss_product_management.environments import ProductRegistry, WorkSpace
-from gnss_product_management.factories.models import FoundResource
 from gnss_product_management.factories.pipelines.download import DownloadPipeline
 from gnss_product_management.factories.pipelines.lockfile_writer import LockfileWriter
 from gnss_product_management.factories.remote_transport import WormHole
@@ -33,6 +32,7 @@ from gnss_product_management.lockfile.operations import (
 )
 from gnss_product_management.specifications.dependencies.dependencies import (
     Dependency,
+    DependencyBundle,
     DependencyResolution,
     DependencySpec,
     ResolvedDependency,
@@ -93,6 +93,7 @@ class ResolvePipeline:
         *,
         sink_id: str = "local_config",
         centers: list[str] | None = None,
+        bundle_centers: list[str] | None = None,
         download: bool = True,
         force_download: bool = False,
     ) -> tuple[DependencyResolution, AnyPath | None]:
@@ -127,8 +128,11 @@ class ResolvePipeline:
             date=date,
             version=version,
         )
-        if existing is not None and not force_download:
-            resolution = self._resolution_from_lockfile(existing, spec)
+        cached_resolution = (
+            self._resolution_from_lockfile(existing, spec) if existing is not None else None
+        )
+        if cached_resolution is not None and not force_download:
+            resolution = cached_resolution
             if resolution.all_required_fulfilled:
                 logger.info(
                     "Lockfile already exists for %s on %s — skipping resolution: %s",
@@ -145,6 +149,17 @@ class ResolvePipeline:
             )
 
         # --- Full resolution -------------------------------------------------
+        cached_static = {
+            result.spec: result
+            for result in (cached_resolution.resolved if cached_resolution else [])
+            if result.status != "missing"
+        }
+        dependencies_to_resolve = [
+            dep
+            for dep in spec.dependencies
+            if dep.refresh_on_force or dep.spec not in cached_static
+        ]
+
         resolve_one = partial(
             self._resolve_one,
             date=date,
@@ -154,15 +169,52 @@ class ResolvePipeline:
             download=download,
             force_download=force_download,
         )
+        dep_by_spec = {dep.spec: dep for dep in dependencies_to_resolve}
+        bundled_specs = {
+            member for bundle in spec.bundles for member in bundle.members if member in dep_by_spec
+        }
+        independent = [dep for dep in dependencies_to_resolve if dep.spec not in bundled_specs]
+
         with ThreadPoolExecutor(max_workers=15) as executor:
-            resolved = list(executor.map(resolve_one, spec.dependencies))
+            futures = [executor.submit(resolve_one, dep) for dep in independent]
+            futures.extend(
+                executor.submit(
+                    self._resolve_bundle,
+                    bundle,
+                    dep_by_spec,
+                    date=date,
+                    sink_id=sink_id,
+                    preferences=spec.preferences,
+                    centers=bundle_centers if bundle_centers is not None else centers,
+                    download=download,
+                    force_download=force_download,
+                )
+                for bundle in spec.bundles
+                if any(member in dep_by_spec for member in bundle.members)
+            )
+            newly_resolved = []
+            for future in as_completed(futures):
+                result = future.result()
+                newly_resolved.extend(result if isinstance(result, list) else [result])
+
+        by_spec = {result.spec: result for result in newly_resolved}
+        by_spec.update(
+            {
+                dep.spec: cached_static[dep.spec]
+                for dep in spec.dependencies
+                if not dep.refresh_on_force and dep.spec in cached_static
+            }
+        )
+        resolved = [by_spec[dep.spec] for dep in spec.dependencies]
 
         resolution = DependencyResolution(spec_name=spec.name, resolved=resolved)
 
         lf_path: AnyPath | None = None
-        if resolution.fulfilled:
+        if resolution.all_required_fulfilled:
             writer = LockfileWriter(lockfile_dir, package=spec.package)
             lf_path = writer.write(resolution, date)
+        elif resolution.fulfilled:
+            logger.warning("Not writing aggregate lockfile: required dependencies are missing")
 
         logger.info(resolution.summary())
         return resolution, lf_path
@@ -193,7 +245,36 @@ class ResolvePipeline:
         Returns:
             A :class:`ResolvedDependency` with the resolution result.
         """
-        logger.debug("Attempting to resolve dependency %s on %s", dep.spec, date.date())
+        candidates = self._search_candidates(
+            dep,
+            date=date,
+            preferences=preferences,
+            centers=centers,
+        )
+        if force_download and dep.refresh_on_force:
+            found = next((item for item in candidates if not item.is_local), None)
+        else:
+            found = candidates[0] if candidates else None
+
+        return self._materialize(
+            dep,
+            found,
+            date=date,
+            sink_id=sink_id,
+            download=download,
+            force_download=force_download,
+        )
+
+    def _search_candidates(
+        self,
+        dep: Dependency,
+        *,
+        date: datetime.datetime,
+        preferences: list[SearchPreference],
+        centers: list[str] | None,
+    ) -> list:
+        """Search for all candidates for one dependency."""
+        logger.debug("Searching for dependency %s on %s", dep.spec, date.date())
         try:
             q = self._query.for_product(dep.spec).on(date)
             if dep.constraints:
@@ -203,15 +284,22 @@ class ResolvePipeline:
                     q = q.prefer(**{pref.parameter: pref.sorting})
             if centers:
                 q = q.sources(*centers)
-            candidates = q.search()
-            if force_download:
-                found = next((candidate for candidate in candidates if not candidate.is_local), None)
-            else:
-                found = candidates[0] if candidates else None
+            return q.search()
         except Exception as exc:
             logger.debug("No candidates for %s: %s", dep.spec, exc)
-            return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
+            return []
 
+    def _materialize(
+        self,
+        dep: Dependency,
+        found,
+        *,
+        date: datetime.datetime,
+        sink_id: str,
+        download: bool,
+        force_download: bool,
+    ) -> ResolvedDependency:
+        """Turn a selected local or remote candidate into a resolution result."""
         if found is None:
             logger.warning("No search results for dependency %s", dep.spec)
             return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
@@ -233,7 +321,12 @@ class ResolvePipeline:
                 remote_url=found.uri,
             )
 
-        path = self._downloader.run(found, date, sink_id=sink_id, force=force_download)
+        path = self._downloader.run(
+            found,
+            date,
+            sink_id=sink_id,
+            force=force_download and dep.refresh_on_force,
+        )
         if path is None:
             logger.warning("Download failed for dependency %s", dep.spec)
             return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
@@ -246,6 +339,122 @@ class ResolvePipeline:
             local_path=str(path),
             remote_url=found.uri,
         )
+
+    def _resolve_bundle(
+        self,
+        bundle: DependencyBundle,
+        dep_by_spec: dict[str, Dependency],
+        *,
+        date: datetime.datetime,
+        sink_id: str,
+        preferences: list[SearchPreference],
+        centers: list[str] | None,
+        download: bool,
+        force_download: bool,
+    ) -> list[ResolvedDependency]:
+        """Resolve a coherent dependency family, falling back as a whole."""
+        members = [dep_by_spec[name] for name in bundle.members if name in dep_by_spec]
+        required = [dep for dep in members if dep.required]
+
+        def family_rank(key: tuple[str, ...]) -> tuple:
+            values = dict(zip(bundle.coherence, key, strict=True))
+            ranks = []
+            for preference in preferences:
+                value = values.get(preference.parameter, "")
+                try:
+                    ranks.append(preference.sorting.index(value))
+                except ValueError:
+                    ranks.append(len(preference.sorting))
+            return (*ranks, key)
+
+        if centers is not None:
+            center_stages: list[list[str] | None] = [centers]
+        else:
+            preferred_centers = next(
+                (pref.sorting for pref in preferences if pref.parameter == "AAA"), []
+            )
+            center_stages = (
+                [[preferred_centers[0]], preferred_centers[1:]]
+                if len(preferred_centers) > 1
+                else [None]
+            )
+
+        for stage_centers in center_stages:
+            logger.info("Searching bundle %s center stage %s", bundle.name, stage_centers or "all")
+            with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
+                searched = list(
+                    executor.map(
+                        lambda dep: self._search_candidates(
+                            dep,
+                            date=date,
+                            preferences=preferences,
+                            centers=stage_centers,
+                        ),
+                        members,
+                    )
+                )
+
+            candidates_by_member: dict[str, dict[tuple[str, ...], list]] = {}
+            for dep, candidates in zip(members, searched, strict=True):
+                if force_download and dep.refresh_on_force:
+                    candidates = [candidate for candidate in candidates if not candidate.is_local]
+                grouped: dict[tuple[str, ...], list] = {}
+                for candidate in candidates:
+                    key = tuple(candidate.parameters.get(field, "") for field in bundle.coherence)
+                    grouped.setdefault(key, []).append(candidate)
+                candidates_by_member[dep.spec] = grouped
+
+            family_keys = set().union(*(set(groups) for groups in candidates_by_member.values()))
+            for key in sorted(family_keys, key=family_rank):
+                present = [dep.spec for dep in members if key in candidates_by_member[dep.spec]]
+                missing = [
+                    dep.spec for dep in required if key not in candidates_by_member[dep.spec]
+                ]
+                log = logger.warning if missing else logger.info
+                log(
+                    "Bundle preflight %s family %s: present=%s; missing_required=%s",
+                    bundle.name,
+                    key,
+                    present,
+                    missing,
+                )
+
+            viable = set(candidates_by_member[required[0].spec]) if required else set()
+            for dep in required[1:]:
+                viable &= set(candidates_by_member[dep.spec])
+
+            for key in sorted(viable, key=family_rank):
+                selected = {
+                    dep.spec: candidates_by_member[dep.spec].get(key, [None])[0] for dep in members
+                }
+                with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
+                    results = list(
+                        executor.map(
+                            lambda dep: self._materialize(
+                                dep,
+                                selected[dep.spec],
+                                date=date,
+                                sink_id=sink_id,
+                                download=download,
+                                force_download=force_download,
+                            ),
+                            members,
+                        )
+                    )
+                if all(result.status != "missing" for result in results if result.required):
+                    logger.info("Selected %s bundle family %s", bundle.name, key)
+                    return results
+                logger.warning(
+                    "Rejected %s bundle family %s after a required product failed",
+                    bundle.name,
+                    key,
+                )
+
+        logger.warning("No complete downloadable family found for bundle %s", bundle.name)
+        return [
+            ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
+            for dep in members
+        ]
 
     @staticmethod
     def _lockfile_entry_is_valid(lp) -> bool:

@@ -164,6 +164,22 @@ class TestTruncatedDownload:
         assert result.read_bytes() == REMOTE_CONTENT
         assert len(calls) == 2
 
+    def test_failed_url_is_not_retried_again_in_same_run(self, env, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def _always_truncated(self, hostname, remote_path, target_dir):
+            calls.append(1)
+            local = Path(target_dir) / Path(remote_path).name
+            local.write_bytes(REMOTE_CONTENT[:10])
+            return local
+
+        monkeypatch.setattr(ConnectionPoolFactory, "download_file", _always_truncated)
+
+        assert _download(env) is None
+        assert len(calls) == 2
+        assert _download(env) is None
+        assert len(calls) == 2
+
 
 # ── Cached files ──────────────────────────────────────────────────
 
