@@ -304,12 +304,16 @@ class TestSearchPlannerFilepaths:
             fn = q.product.filename.pattern
             assert "GIM" in fn and "INX" in fn
 
-    def test_ionex_directory_uses_code_root(self, cod_qf, test_date) -> None:
-        queries = cod_qf.get(date=test_date, product={"name": "IONEX"})
+    def test_final_ionex_directory_uses_code_year(self, cod_qf, test_date) -> None:
+        queries = cod_qf.get(
+            date=test_date,
+            product={"name": "IONEX"},
+            parameters={"TTT": "FIN"},
+        )
         remote = [q for q in queries if q.server.protocol != "file"]
         for q in remote:
-            d = q.directory.pattern
-            assert d == "CODE/"
+            d = q.directory.value or q.directory.pattern
+            assert d == "CODE/2025/"
 
     def test_brdc_filename_contains_brdc(self, wuhan_qf, test_date) -> None:
         queries = wuhan_qf.get(date=test_date, product={"name": "RNX3_BRDC"})
@@ -473,12 +477,16 @@ class TestQueryStructure:
             wuhan_qf.get(date=test_date, product={"name": "NONEXISTENT"})
 
     def test_cod_orbit_directory_is_code_yyyy(self, cod_qf, test_date) -> None:
-        queries = cod_qf.get(date=test_date, product={"name": "ORBIT"})
+        queries = cod_qf.get(
+            date=test_date,
+            product={"name": "ORBIT"},
+            parameters={"TTT": "FIN"},
+        )
         remote = [q for q in queries if q.server.protocol != "file"]
         assert len(remote) > 0
         for q in remote:
-            d = q.directory.pattern
-            assert d.startswith("CODE/")
+            d = q.directory.value or q.directory.pattern
+            assert d == "CODE/2025/"
 
     def test_cddis_orbit_directory_is_gpsweek(self, cddis_qf, test_date) -> None:
         gpsweek = str((test_date.date() - datetime.date(1980, 1, 6)).days // 7)

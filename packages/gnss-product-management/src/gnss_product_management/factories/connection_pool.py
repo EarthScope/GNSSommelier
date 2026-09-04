@@ -18,10 +18,6 @@ import fsspec.utils
 
 logger = logging.getLogger(__name__)
 
-_AIUB_DOWNLOAD_ROOT = "https://www.aiub.unibe.ch/download"
-_AIUB_LISTING_ENDPOINT = "https://code.aiub.unibe.ch/s3_script/aiub_s3_bucket_listing.php?path="
-
-
 class ConnectionPool:
     """Thread-safe pool of fsspec filesystem instances for a single host.
 
@@ -31,16 +27,24 @@ class ConnectionPool:
         max_connections: Maximum number of concurrent connections.
     """
 
-    def __init__(self, hostname: str, max_connections: int = 4):
+    def __init__(
+        self,
+        hostname: str,
+        max_connections: int = 4,
+        listing_url: str | None = None,
+    ):
         """Initialise a connection pool for *hostname*.
 
         Args:
             hostname: Server address or local path.
             max_connections: Maximum number of concurrent connections.
+            listing_url: Optional URL template for a separate HTML directory
+                listing. ``{directory}`` is replaced with the quoted path.
         """
         self.hostname = hostname
         self.protocol = fsspec.utils.get_protocol(hostname) or "file"
         self.max_connections = max_connections
+        self.listing_url = listing_url
         self._pool: list[fsspec.AbstractFileSystem] = []
         self._semaphore: threading.Semaphore | None = None
         self._pool_lock = threading.Lock()
@@ -201,15 +205,22 @@ class ConnectionPoolFactory:
         self._listing_cache: dict[str, list[str]] = {}
         self._listing_cache_lock = threading.Lock()
 
-    def add_connection(self, hostname: str):
+    def add_connection(self, hostname: str, *, listing_url: str | None = None):
         """Ensure a connection pool exists for *hostname*.
 
         Args:
             hostname: Server address to pool.
+            listing_url: Optional separate HTML directory-listing URL template.
         """
         with self._factory_lock:
             if hostname not in self._pools:
-                self._pools[hostname] = ConnectionPool(hostname, self.max_connections)
+                self._pools[hostname] = ConnectionPool(
+                    hostname,
+                    self.max_connections,
+                    listing_url=listing_url,
+                )
+            elif self._pools[hostname].listing_url != listing_url:
+                raise ValueError(f"Conflicting listing configuration for: {hostname}")
 
     @contextmanager
     def get_connection(self, hostname: str):
@@ -257,12 +268,15 @@ class ConnectionPoolFactory:
         full_path = pool.full_path(directory)
 
         def _ls(conn: "fsspec.AbstractFileSystem") -> list[str]:
-            if hostname.rstrip("/") == _AIUB_DOWNLOAD_ROOT:
-                listing_url = _AIUB_LISTING_ENDPOINT + quote(directory.strip("/"), safe="/")
+            if pool.listing_url:
+                quoted_directory = quote(directory.strip("/"), safe="/")
+                listing_url = pool.listing_url.format(directory=quoted_directory)
                 html = conn.cat_file(listing_url)
                 if isinstance(html, bytes):
                     html = html.decode("utf-8", errors="replace")
-                download_prefix = re.escape(f"{_AIUB_DOWNLOAD_ROOT}/{directory.strip('/')}/")
+                download_prefix = re.escape(
+                    f"{hostname.rstrip('/')}/{directory.strip('/')}/"
+                )
                 return sorted(set(re.findall(rf'href="{download_prefix}([^"/]+)"', html)))
             raw = conn.ls(full_path, detail=False)
             return [Path(p).name for p in raw]

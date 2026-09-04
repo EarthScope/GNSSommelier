@@ -125,14 +125,14 @@ class TestCODResourceFinding:
             for r in found
         )
 
-    def test_orbit_directory_is_code_root(self, cod_qf, fetcher, test_date) -> None:
-        """AIUB's HTTPS browser exposes products from the CODE root."""
-        results = _search_remote(cod_qf, fetcher, test_date, "ORBIT")
+    def test_final_orbit_directory_is_code_year(self, cod_qf, fetcher, test_date) -> None:
+        """AIUB archives final products in year-specific directories."""
+        results = _search_remote(cod_qf, fetcher, test_date, "ORBIT", {"TTT": "FIN"})
         found = _assert_found(results, "ORBIT")
         for r in found:
             d = r.directory
-            d_str = d.pattern if isinstance(d, PathTemplate) else str(d)
-            assert d_str == "CODE/"
+            d_str = (d.value or d.pattern) if isinstance(d, PathTemplate) else str(d)
+            assert d_str == "CODE/2025/"
 
     def test_orbit_filenames_contain_cod(self, cod_qf, fetcher, test_date) -> None:
         results = _search_remote(cod_qf, fetcher, test_date, "ORBIT")

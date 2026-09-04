@@ -95,8 +95,12 @@ class WormHole:
         groups, rejected = self._group_targets(targets)
 
         # Ensure connection pools exist for every hostname we'll contact.
-        for hostname, _ in groups:
-            self._connection_pool_factory.add_connection(hostname)
+        for (hostname, _), group_targets in groups.items():
+            server = group_targets[0][0].server
+            self._connection_pool_factory.add_connection(
+                hostname,
+                listing_url=server.listing_url,
+            )
 
         # List each unique directory in parallel.
         dir_keys = list(groups.keys())
