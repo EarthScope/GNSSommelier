@@ -21,6 +21,9 @@ class Server(BaseModel):
         hostname: Server hostname or URL.
         protocol: Protocol (``'ftp'``, ``'http'``, ``'https'``, etc.).
         auth_required: Whether authentication is needed.
+        listing_url: Optional URL template for servers whose directory listing
+            is exposed separately from their download root.  ``{directory}``
+            is replaced with the URL-quoted directory being searched.
         description: Human-readable server description.
     """
 
@@ -28,6 +31,7 @@ class Server(BaseModel):
     hostname: str
     protocol: str | None = None
     auth_required: bool | None = False
+    listing_url: str | None = None
     description: str | None = None
 
 

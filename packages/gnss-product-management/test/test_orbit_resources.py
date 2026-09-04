@@ -96,10 +96,10 @@ class TestCODOrbitExpansion:
         queries = _get_remote_queries(cod_qf, test_date, "ORBIT")
         assert len(queries) > 0
 
-    def test_orbit_server_protocol_is_ftp(self, cod_qf, test_date) -> None:
+    def test_orbit_server_protocol_is_https(self, cod_qf, test_date) -> None:
         queries = _get_remote_queries(cod_qf, test_date, "ORBIT")
         for q in queries:
-            assert q.server.protocol.lower() == "ftp"
+            assert q.server.protocol.lower() == "https"
 
     def test_orbit_directory_contains_code(self, cod_qf, test_date) -> None:
         queries = _get_remote_queries(cod_qf, test_date, "ORBIT")

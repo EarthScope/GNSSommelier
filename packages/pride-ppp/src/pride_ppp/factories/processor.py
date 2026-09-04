@@ -51,6 +51,7 @@ from ..defaults import (
 from ..specifications.cli import PrideCLIConfig
 from ..specifications.config import PRIDEPPPFileConfig, SatelliteProducts
 from .output import get_wrms_from_res, kin_to_kin_position_df
+from .product_validation import product_epoch_bounds, validate_pride_products
 from .rinex import rinex_get_time_range
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class ProcessingMode(enum.Enum):
 
     Selects which dependency-spec YAML governs which products are accepted.
 
-    * ``DEFAULT`` — cascades through FIN → RAP → ULT.  Uses the best
+    * ``DEFAULT`` — cascades through FIN → RTS → RAP → ULT. Uses the best
       available product at run time.  Suitable for near-real-time processing
       or when the observation date is within the last two weeks.
     * ``FINAL``   — accepts only IGS final (FIN) products (available ≥13 days
@@ -271,11 +272,24 @@ def _resolution_to_satellite_products(
 
     return (
         SatelliteProducts(
-            satellite_orbit=product_fields.get("satellite_orbit"),
-            satellite_clock=product_fields.get("satellite_clock"),
-            code_phase_bias=product_fields.get("code_phase_bias"),
-            quaternions=product_fields.get("quaternions"),
-            erp=product_fields.get("erp"),
+            # .get(key, "Default") — not .get(key): a bare None here is passed
+            # to the pydantic model explicitly, which bypasses the field's own
+            # "Default" default and gets f-string'd into the config file as the
+            # literal text "None". pdp3.sh only recognizes "Default" as its
+            # let-me-resolve-it-myself sentinel, so "None" makes it try to
+            # download a product file literally named "None" and fail outright
+            # — worse than the missing-required abort this is meant to replace
+            # for optional specs.  ATTOBX is different: RTS bundles do not
+            # provide satellite attitude, and leaving Quaternions as Default
+            # makes pdp3 attempt slow fallback downloads.  Its missing-file
+            # branch also uses a non-portable ``sed -i`` invocation that
+            # corrupts the generated config on macOS.  NONE is PRIDE's
+            # supported spelling for processing without an attitude product.
+            satellite_orbit=product_fields.get("satellite_orbit", "Default"),
+            satellite_clock=product_fields.get("satellite_clock", "Default"),
+            code_phase_bias=product_fields.get("code_phase_bias", "Default"),
+            quaternions=product_fields.get("quaternions", "NONE"),
+            erp=product_fields.get("erp", "Default"),
             product_directory=str(product_dir) if product_dir else "Default",
         ),
         product_dir,
@@ -303,6 +317,102 @@ def _resolution_to_table_dir(resolution: DependencyResolution) -> Path | None:
                 path = as_path(local_path)
                 return path.parent
     return None
+
+
+def _stage_broadcast_navigation(
+    resolution: DependencyResolution,
+    rinex: Path,
+    date: datetime.date,
+) -> Path | None:
+    """Place resolved mixed navigation where ``pdp3`` expects to find it.
+
+    PRIDE derives the legacy mixed-navigation name from the observation file
+    and searches in the observation file's directory. Product resolution,
+    however, stores the RINEX 3 navigation product in the PRIDE workspace.
+    Bridge those layouts before invoking ``pdp3``.
+    """
+    source: Path | None = None
+    for rd in resolution.fulfilled:
+        if rd.spec == "RNX3_BRDC" and rd.local_path is not None:
+            source = Path(as_path(rd.local_path))
+            break
+
+    if source is None:
+        return None
+
+    destination = rinex.parent / f"brdm{date.timetuple().tm_yday:03d}0.{date.year % 100:02d}p"
+    if source.resolve() == destination.resolve():
+        return destination
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    logger.info("Staged broadcast navigation %s from %s", destination, source)
+    return destination
+
+
+def _prepare_rinex_for_product_coverage(
+    rinex: Path,
+    resolution: DependencyResolution,
+    date: datetime.date,
+    work_dir: Path,
+) -> Path:
+    """Clip same-day observations to safe orbit/clock coverage."""
+    if date != datetime.datetime.now(datetime.timezone.utc).date():
+        return rinex
+    by_spec = {
+        rd.spec: Path(as_path(rd.local_path))
+        for rd in resolution.fulfilled
+        if rd.local_path is not None and rd.spec in {"ORBIT", "CLOCK"}
+    }
+    bounds = [
+        product_epoch_bounds(path, product) for product, path in by_spec.items() if path.exists()
+    ]
+    bounds = [bound for bound in bounds if bound is not None]
+    if len(bounds) != 2:
+        return rinex
+    obs_start, obs_end = rinex_get_time_range(rinex)
+    coverage_end = min(bound[1] for bound in bounds)
+    safe_end = coverage_end - datetime.timedelta(minutes=5)
+    if obs_end <= safe_end:
+        return rinex
+    if safe_end <= obs_start:
+        raise ValueError(f"No observations inside product coverage ending {coverage_end}")
+
+    clipped = work_dir / "clipped_rinex" / rinex.name
+    clipped.parent.mkdir(parents=True, exist_ok=True)
+    keep_epoch = False
+    in_header = True
+    with rinex.open(errors="replace") as source, clipped.open("w") as destination:
+        for line in source:
+            if in_header:
+                destination.write(line)
+                if "END OF HEADER" in line:
+                    in_header = False
+                continue
+            if line.startswith(">"):
+                fields = line.split()
+                epoch = datetime.datetime(
+                    int(fields[1]),
+                    int(fields[2]),
+                    int(fields[3]),
+                    int(fields[4]),
+                    int(fields[5]),
+                    int(float(fields[6])),
+                )
+                keep_epoch = epoch <= safe_end
+                if not keep_epoch:
+                    break
+            if keep_epoch:
+                destination.write(line)
+    logger.warning(
+        "Same-day observations end at %s but common orbit/clock coverage ends at %s; "
+        "using clipped RINEX ending by %s: %s",
+        obs_end,
+        coverage_end,
+        safe_end,
+        clipped,
+    )
+    return clipped
 
 
 def _write_config(
@@ -380,6 +490,7 @@ class PrideProcessor:
         pride_install_dir: Path | None = None,
         cli_config: PrideCLIConfig | None = PrideCLIConfig(),
         mode: ProcessingMode | Literal["FINAL", "DEFAULT"] = ProcessingMode.DEFAULT,
+        override_products_download: bool = False,
     ) -> None:
         """Initialise the processor and all its owned subsystems.
 
@@ -403,11 +514,13 @@ class PrideProcessor:
             mode: Product timeliness mode.  Selects which dependency-spec
                 YAML governs product resolution:
 
-                * ``ProcessingMode.DEFAULT`` — FIN → RAP → ULT cascade.
+                * ``ProcessingMode.DEFAULT`` — FIN → RTS → RAP → ULT cascade.
                 * ``ProcessingMode.FINAL``   — only FINAL products.
 
                 Also accepts the string literals ``"DEFAULT"`` or
                 ``"FINAL"`` for convenience.
+            override_products_download: Ignore product lockfiles and local
+                cached products, downloading fresh remote copies instead.
         """
         if isinstance(mode, str):
             mode = ProcessingMode(mode.upper())
@@ -416,6 +529,7 @@ class PrideProcessor:
         self._pride_install_dir = Path(pride_install_dir) if pride_install_dir else None
         self._cli_config = cli_config if cli_config is not None else PrideCLIConfig()
         self._mode = mode
+        self._override_products_download = override_products_download
 
         # Load the DependencySpec that matches the requested processing mode.
         # The dep-spec controls which TTT (timeliness) values the resolver
@@ -508,6 +622,7 @@ class PrideProcessor:
         self,
         date: datetime.datetime,
         local_sink_id: str = "pride",
+        centers: list[str] | None = None,
     ) -> DependencyResolution:
         """Resolve all dependencies for a single UTC date.
 
@@ -520,17 +635,44 @@ class PrideProcessor:
             date: Target date (midnight UTC) for product resolution.
             local_sink_id: WorkSpace alias that receives downloaded files.
                 Defaults to ``"pride"`` which maps to ``self._pride_dir``.
+            centers: Optional analysis-center resource IDs to search.  Primarily
+                useful for targeted diagnostics and controlled processing.
 
         Returns:
             A :class:`DependencyResolution` containing fulfilled and missing
             product entries.
         """
-        resolution, _ = self._client.resolve_dependencies(
-            self._dep_spec,
-            date,
-            sink_id=local_sink_id,
-        )
+        kwargs = {
+            "sink_id": local_sink_id,
+            "force_download": self._override_products_download,
+        }
+        if centers is not None:
+            kwargs["bundle_centers"] = centers
+        resolution, _ = self._client.resolve_dependencies(self._dep_spec, date, **kwargs)
         return resolution
+
+    def _add_product_diagnostics(
+        self, rinex_paths: Sequence[Path], resolution: DependencyResolution
+    ) -> None:
+        """Attach non-fatal product coverage diagnostics to a resolution."""
+        try:
+            cli_config = getattr(self, "_cli_config", None) or PrideCLIConfig()
+            messages = validate_pride_products(
+                rinex_paths,
+                resolution,
+                cli_config.frequency,
+            )
+        except (OSError, ValueError) as exc:
+            messages = [f"Product compatibility diagnostics unavailable: {exc}"]
+        resolution.diagnostics.extend(messages)
+        for message in messages:
+            if any(
+                marker in message
+                for marker in ("partial", "not present", "could not", "unavailable")
+            ):
+                logger.warning("Product compatibility: %s", message)
+            else:
+                logger.info("Product compatibility: %s", message)
 
     # ------------------------------------------------------------------ #
     # Directory helpers
@@ -546,7 +688,15 @@ class PrideProcessor:
     # ------------------------------------------------------------------ #
     # Subprocess execution
     # ------------------------------------------------------------------ #
-    def _build_pdp_command(self, rinex: Path, site: str, config_path: Path) -> list[str]:
+    def _build_pdp_command(
+        self,
+        rinex: Path,
+        site: str,
+        config_path: Path,
+        *,
+        resolution: DependencyResolution,
+        date: datetime.date,
+    ) -> list[str]:
         """Assemble the full ``pdp3`` command-line invocation.
 
         Clones the processor's CLI config, overriding
@@ -557,16 +707,43 @@ class PrideProcessor:
             rinex: Path to the observation file passed to pdp3.
             site: 4-char site identifier (e.g. ``"NCC1"``).
             config_path: The ``config_file`` written by ``_write_config``.
+            resolution: Products resolved for the observation date.
+            date: Observation date used to detect the same-day nav fallback.
 
         Returns:
             A list of strings suitable for ``subprocess.run()``.
         """
-        cli = PrideCLIConfig(
-            **{
-                **self._cli_config.model_dump(),
-                "pride_configfile_path": config_path,
-            }
+        values = {
+            **self._cli_config.model_dump(),
+            "pride_configfile_path": config_path,
+        }
+        has_mixed_navigation = any(
+            rd.spec == "RNX3_BRDC" and rd.local_path is not None for rd in resolution.fulfilled
         )
+        today_utc = datetime.datetime.now(datetime.timezone.utc).date()
+        if date == today_utc:
+            values["mapping_function"] = "GMF"
+            logger.info(
+                "Using GMF for same-day PRIDE processing on %s; VMF grids "
+                "covering the complete interpolation window may not yet be published",
+                date,
+            )
+        if date == today_utc and not has_mixed_navigation:
+            frequencies = [f for f in self._cli_config.frequency if f.startswith(("G", "R"))]
+            if not frequencies:
+                raise ValueError(
+                    "Same-day GPS/GLONASS navigation fallback requires at least one "
+                    "GPS or GLONASS frequency combination"
+                )
+            values.update(system="GR", frequency=frequencies)
+            logger.warning(
+                "No mixed-GNSS broadcast navigation available for %s; limiting "
+                "pdp3 to GPS/GLONASS frequencies %s for its hourly nav fallback",
+                date,
+                frequencies,
+            )
+
+        cli = PrideCLIConfig(**values)
         return cli.generate_pdp_command(site=site, local_file_path=str(rinex))
 
     @staticmethod
@@ -582,9 +759,10 @@ class PrideProcessor:
         ``pride_dir/{year}/{doy}/`` directory so these artefacts are
         available for inspection after the run.
 
-        After execution the method searches recursively for ``kin_*`` and
-        ``res_*`` output files matching *site*, appends ``.kin`` / ``.res``
-        extensions, and moves them to *output_dir*.
+        After execution the method searches recursively for the site outputs.
+        A valid solution preserves ``kin``, ``res``, the runtime config,
+        editing log, ambiguity constraints, residual statistics, and captured
+        console output in *output_dir* using a common ``YYYYDOY_site`` suffix.
 
         Args:
             command: Full pdp3 argument list from ``_build_pdp_command``.
@@ -593,10 +771,28 @@ class PrideProcessor:
 
         Returns:
             ``(kin_path, res_path, returncode, stderr)`` where paths are
-            ``None`` when the corresponding output was not produced.
+            ``None`` when the corresponding output was not produced or
+            didn't pass validation (see below).
 
         Raises:
             FileNotFoundError: If the ``pdp3`` binary is not on ``PATH``.
+
+        Note:
+            ``pdp3`` can exit 0 and still leave a stale ``kin_*`` file
+            behind from an earlier, non-fatal stage (e.g. the initial
+            single-point-positioning seed file written before the real
+            ambiguity-resolution step) even when a later internal stage
+            fails outright. Trusting a bare filename-glob match would
+            silently accept that low-quality leftover as a successful
+            result, so two independent checks guard against it: (1)
+            ``pdp3.sh`` prints its own ``error:``-tagged lines to stdout on
+            a hard stage failure — distinct from its ``warning:`` lines for
+            recoverable conditions — which is scanned for regardless of
+            the process's own exit code; (2) any ``kin_*`` match found is
+            parsed with the same validator used to check cached output
+            (:func:`kin_to_kin_position_df`) before being trusted, since a
+            leftover seed file has a different (and much sparser) column
+            layout that fails to parse.
         """
         if not shutil.which("pdp3"):
             raise FileNotFoundError("pdp3 binary not found in PATH")
@@ -608,12 +804,14 @@ class PrideProcessor:
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
 
             # Replay stdout/stderr through the logger for observability
-            if result.stdout:
-                for line in result.stdout.strip().splitlines():
-                    logger.info(line)
+            stdout_lines = result.stdout.strip().splitlines() if result.stdout else []
+            for line in stdout_lines:
+                logger.info(line)
             if result.stderr:
                 for line in result.stderr.strip().splitlines():
                     logger.warning(line)
@@ -627,6 +825,15 @@ class PrideProcessor:
                     stderr_tail or "(no stderr)",
                 )
 
+            pdp3_error_lines = [line for line in stdout_lines if "error:" in line.lower()]
+            if pdp3_error_lines:
+                logger.error(
+                    "pdp3 reported failure for site %s despite returncode %d: %s",
+                    site,
+                    result.returncode,
+                    " | ".join(pdp3_error_lines),
+                )
+
             # pdp3 writes outputs as e.g. "kin_2025254_ncc1" (no extension).
             # Search recursively in the working dir to find them.
             kin_files = list(Path(tmpdir).rglob(f"kin_*_{site.lower()}"))
@@ -638,25 +845,66 @@ class PrideProcessor:
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Move outputs to the final output directory with proper extensions
-            if kin_files:
-                src = kin_files[0]
-                dst = output_dir / (src.name + ".kin")
-                shutil.move(str(src), str(dst))
-                kin_out = dst
-                logger.info("Generated kin file %s", dst)
-            else:
+            if not kin_files:
                 logger.error(
                     "pdp3 produced no kin output for site %s (returncode %d)",
                     site,
                     result.returncode,
                 )
+            elif pdp3_error_lines:
+                logger.error(
+                    "Discarding kin output for site %s: pdp3 reported an internal "
+                    "failure, so %s is likely an incomplete/seed-only leftover, "
+                    "not a real result.",
+                    site,
+                    kin_files[0].name,
+                )
+            elif kin_to_kin_position_df(kin_files[0]) is None:
+                logger.error(
+                    "Discarding kin output for site %s: %s exists but failed to "
+                    "parse as a valid kinematic position file.",
+                    site,
+                    kin_files[0].name,
+                )
+            else:
+                src = kin_files[0]
+                dst = output_dir / (src.name + ".kin")
+                shutil.move(str(src), str(dst))
+                kin_out = dst
+                logger.info("Generated kin file %s", dst)
 
-            if res_files:
+            if kin_out is not None and res_files:
                 src = res_files[0]
                 dst = output_dir / (src.name + ".res")
                 shutil.move(str(src), str(dst))
                 res_out = dst
                 logger.info("Generated res file %s", dst)
+
+            if kin_out is not None:
+                # The validated KIN name is authoritative for the session ID,
+                # e.g. kin_2026247_ncc1 -> 2026247_ncc1.  Keep the actual
+                # runtime-mutated config rather than the pre-pdp3 template.
+                session_id = kin_out.stem.removeprefix("kin_")
+                ancillary = {
+                    "config": list(Path(tmpdir).rglob("config.*")),
+                    "log": list(Path(tmpdir).rglob(f"log_{session_id}")),
+                    "cst": list(Path(tmpdir).rglob(f"cst_{session_id}")),
+                    "stt": list(Path(tmpdir).rglob(f"stt_{session_id}")),
+                }
+                for kind, sources in ancillary.items():
+                    if not sources:
+                        logger.warning("pdp3 produced no %s output for %s", kind, session_id)
+                        continue
+                    destination = output_dir / f"{kind}_{session_id}.{kind}"
+                    shutil.move(str(sources[0]), str(destination))
+                    logger.info("Generated %s file %s", kind, destination)
+
+                run_log = output_dir / f"run_{session_id}.log"
+                sections = ["=== pdp3 stdout ===\n", result.stdout or ""]
+                if result.stderr:
+                    sections.extend(["\n=== pdp3 stderr ===\n", result.stderr])
+                run_log.write_text("".join(sections), encoding="utf-8")
+                logger.info("Generated run log %s", run_log)
 
         return kin_out, res_out, result.returncode, result.stderr
 
@@ -788,6 +1036,7 @@ class PrideProcessor:
         # --- 2. Resolve products ----------------------------------------------
         logger.info("Resolving products for %s (site=%s)", start_date, site)
         resolution = self._resolve(target_dt)
+        self._add_product_diagnostics([rinex], resolution)
         logger.info(resolution.summary())
 
         # --- 3. Check cache ---------------------------------------------------
@@ -820,10 +1069,18 @@ class PrideProcessor:
         # be inspected after the run and reused by subsequent pdp3 calls for
         # the same date.
         work_dir = self._working_dir(start_date)
+        pdp_rinex = _prepare_rinex_for_product_coverage(rinex, resolution, start_date, work_dir)
+        _stage_broadcast_navigation(resolution, pdp_rinex, start_date)
         sat_products, _ = _resolution_to_satellite_products(resolution)
         table_dir = _resolution_to_table_dir(resolution)
         config_path = _write_config(sat_products, table_dir, work_dir / "config_file")
-        command = self._build_pdp_command(rinex=rinex, site=site, config_path=config_path)
+        command = self._build_pdp_command(
+            rinex=pdp_rinex,
+            site=site,
+            config_path=config_path,
+            resolution=resolution,
+            date=start_date,
+        )
 
         # --- 5. Run pdp3 ------------------------------------------------------
         kin_path, res_path, returncode, stderr = self._run_pdp3(
@@ -911,6 +1168,7 @@ class PrideProcessor:
         jobs_sorted = sorted(jobs, key=lambda j: j[2])
         resolutions: dict[datetime.date, DependencyResolution] = {}
         for date_key, group in groupby(jobs_sorted, key=lambda j: j[2]):
+            date_jobs = list(group)
             target_dt = datetime.datetime(
                 date_key.year,
                 date_key.month,
@@ -919,6 +1177,9 @@ class PrideProcessor:
             )
             logger.info("Resolving products for %s", date_key)
             resolutions[date_key] = self._resolve(target_dt)
+            self._add_product_diagnostics(
+                [rinex for rinex, _site, _date in date_jobs], resolutions[date_key]
+            )
             logger.info(resolutions[date_key].summary())
 
         # --- Step 3: Write per-date config files in year/doy dirs ---------------
@@ -981,10 +1242,15 @@ class PrideProcessor:
                 )
                 continue
 
+            pdp_rinex = _prepare_rinex_for_product_coverage(rinex, resolutions[d], d, work_dirs[d])
+            _stage_broadcast_navigation(resolutions[d], pdp_rinex, d)
+
             command = self._build_pdp_command(
-                rinex=rinex,
+                rinex=pdp_rinex,
                 site=site,
                 config_path=config_paths[d],
+                resolution=resolutions[d],
+                date=d,
             )
             pending.append((i, command, site, d))
 

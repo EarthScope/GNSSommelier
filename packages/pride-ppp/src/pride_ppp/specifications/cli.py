@@ -6,8 +6,12 @@ Builds the ``pdp3`` command line from processing parameters.
 
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+PRIDE_NATIVE_FREQUENCIES = ("G12", "R12", "E15", "C26", "J12")
+DEFAULT_FREQUENCIES = ("G12", "R12", "E17", "C27", "J12")
 
 
 class Constellations(str, Enum):
@@ -80,12 +84,13 @@ class PrideCLIConfig(BaseModel):
 
     sample_frequency: float = 1
     system: str = "GREC23J"
-    frequency: list = ["G12", "R12", "E15", "C26", "J12"]
+    frequency: list[str] = Field(default_factory=lambda: list(DEFAULT_FREQUENCIES))
     loose_edit: bool = True
     cutoff_elevation: int = 7
     interval: float | None = None
     high_ion: bool | None = None
     tides: str = "SOP"
+    mapping_function: Literal["NIE", "GMF", "VM1", "VM3"] | None = None
 
     pride_configfile_path: Path | None = Field(
         None,
@@ -148,8 +153,12 @@ class PrideCLIConfig(BaseModel):
         if self.system != "GREC23J":
             command.extend(["--system", self.system])
 
-        if self.frequency != ["G12", "R12", "E15", "C26", "J12"]:
-            command.extend(["--frequency", " ".join(self.frequency)])
+        # Our E1/E5b and B1/B2 defaults intentionally differ from pdp3's
+        # native E1/E5a and B1/B3 defaults, so they must be passed explicitly.
+        if tuple(self.frequency) != PRIDE_NATIVE_FREQUENCIES:
+            # pdp3.sh consumes each three-character frequency combination as
+            # a separate argv item until it reaches the next option.
+            command.extend(["--frequency", *self.frequency])
 
         if self.loose_edit:
             command.append("--loose-edit")
@@ -165,6 +174,9 @@ class PrideCLIConfig(BaseModel):
 
         if self.tides != "SOP":
             command.extend(["--tide-off", self.tides])
+
+        if self.mapping_function:
+            command.extend(["--mapping-func", self.mapping_function])
 
         command.extend(["--site", site])
 

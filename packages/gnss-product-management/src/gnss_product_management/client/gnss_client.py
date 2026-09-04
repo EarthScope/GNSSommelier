@@ -281,6 +281,9 @@ class GNSSClient:
         date: datetime.datetime,
         *,
         sink_id: str,
+        force_download: bool = False,
+        centers: list[str] | None = None,
+        bundle_centers: list[str] | None = None,
     ) -> tuple[DependencyResolution, AnyPath | None]:
         """Resolve all dependencies in a spec for the given date.
 
@@ -297,6 +300,8 @@ class GNSSClient:
             date: Target date (timezone-aware datetime, midnight UTC).
             sink_id: Local resource alias for storing resolved files
                 (e.g. ``"local"``).
+            centers: Optional remote resource IDs to search.  When omitted,
+                all configured centers are eligible.
 
         Returns:
             A ``(DependencyResolution, lockfile_path)`` tuple.
@@ -312,4 +317,11 @@ class GNSSClient:
             workspace=self._workspace,
             transport=self._transport,
         )
-        return pipeline.run(dep_spec, date, sink_id=sink_id)
+        return pipeline.run(
+            dep_spec,
+            date,
+            sink_id=sink_id,
+            force_download=force_download,
+            centers=centers,
+            bundle_centers=bundle_centers,
+        )

@@ -28,6 +28,24 @@ class Dependency(BaseModel):
     required: bool = True
     description: str = ""
     constraints: dict[str, str] = Field(default_factory=dict)
+    refresh_on_force: bool = Field(
+        default=True,
+        description=(
+            "Re-query and re-download this dependency when force_download is enabled. "
+            "Set false for immutable files bundled with an application."
+        ),
+    )
+
+
+class DependencyBundle(BaseModel):
+    """Dependencies that must come from one coherent product family."""
+
+    name: str
+    members: list[str]
+    coherence: list[str] = Field(
+        default_factory=lambda: ["AAA", "TTT", "PPP"],
+        description="Product parameters that identify a coherent family.",
+    )
 
 
 class DependencySpec(BaseModel):
@@ -37,6 +55,7 @@ class DependencySpec(BaseModel):
     description: str = ""
     preferences: list[SearchPreference] = Field(default_factory=list)
     dependencies: list[Dependency] = Field(default_factory=list)
+    bundles: list[DependencyBundle] = Field(default_factory=list)
     package: str
     task: str
 
@@ -83,6 +102,7 @@ class DependencyResolution:
 
     spec_name: str
     resolved: list[ResolvedDependency] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
 
     @property
     def fulfilled(self) -> list[ResolvedDependency]:

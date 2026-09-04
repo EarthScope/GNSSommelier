@@ -24,6 +24,11 @@ preferences:
     description: >
       Only accept final solutions.
 
+bundles:
+  - name: precise-products
+    members: [ORBIT, CLOCK, ERP, BIA, ATTOBX]
+    coherence: [AAA, TTT, PPP]
+
 dependencies:
   - spec: ORBIT
     constraints:
@@ -57,6 +62,7 @@ dependencies:
 
   - spec: ATTATX
     required: true
+    refresh_on_force: false
     description: Antenna phase center corrections (ANTEX)
 
   - spec: RNX3_BRDC
@@ -65,10 +71,12 @@ dependencies:
 
   - spec: LEAP_SEC
     required: true
+    refresh_on_force: false
     description: Leap second table
 
   - spec: SAT_PARAMS
     required: true
+    refresh_on_force: false
     description: Satellite metadata parameters table
 
   # ---------------------------------------------------------------------------
@@ -76,28 +84,35 @@ dependencies:
   # ---------------------------------------------------------------------------
   - spec: FILE_NAME_TABLE
     required: true
+    refresh_on_force: false
     description: Satellite name/identifier lookup table
 
   - spec: OCEAN_TIDE_FES2004
     required: true
+    refresh_on_force: false
     description: FES2004 ocean tide model coefficients
 
   - spec: OCEAN_LOAD_GREEN
     required: true
+    refresh_on_force: false
     description: Green's function coefficients for ocean tidal loading
 
   - spec: GPT3_GRID
     required: true
+    refresh_on_force: false
     description: GPT3 global pressure and temperature model grid
 
   - spec: OCEAN_LOAD_PROGRAM
     required: true
+    refresh_on_force: false
     description: Pre-computed ocean loading parameters
 
   - spec: OROGRAPHY_1X1
     required: true
+    refresh_on_force: false
     description: Ellipsoidal terrain height grid (1x1)
 
   - spec: OROGRAPHY
     required: true
+    refresh_on_force: false
     description: Ellipsoidal terrain height grid (VMF1)

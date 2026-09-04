@@ -17,14 +17,26 @@ package: PRIDE
 task: PPP
 
 preferences:
+  - parameter: CCC
+    sorting: [WRD, IGS, IGN, DLR]
+    description: >
+      Prefer BKG's rolling WRD mixed-navigation file when it is available;
+      otherwise use the normal daily navigation sources.
   - parameter: AAA
     sorting: [WUM, COD, GFZ, ESA]
     description: >
       Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
   - parameter: TTT
-    sorting: [FIN, RAP, ULT]
+    sorting: [FIN, RTS, RAP, ULT]
     description: >
-      Prefer final solutions, then rapid, then ultra-rapid.
+      Prefer final solutions, then Wuhan real-time streaming products,
+      then rapid and ultra-rapid products. RTS biases include the Galileo
+      phase signals needed for E17 processing before RAP products do.
+
+bundles:
+  - name: precise-products
+    members: [ORBIT, CLOCK, ERP, BIA, ATTOBX]
+    coherence: [AAA, TTT, PPP]
 
 dependencies:
   - spec: ORBIT
@@ -44,23 +56,33 @@ dependencies:
     description: Observable-specific signal biases
 
   - spec: ATTOBX
-    required: true
+    # pdp3.sh tolerates a missing attitude product outright (sets
+    # Quaternions = NONE and skips multipath/attitude modeling) — no AC
+    # publishes ATTOBX faster than FIN/RAP (~1 day lag), so requiring it
+    # blocks same-day/near-real-time processing pdp3 could otherwise do.
+    required: false
     description: Satellite attitude quaternions (OBX)
 
   - spec: ATTATX
     required: true
+    refresh_on_force: false
     description: Antenna phase center corrections (ANTEX)
 
   - spec: RNX3_BRDC
-    required: true
+    # BKG's rolling WRD file normally supplies same-day multi-GNSS navigation.
+    # Keep this optional: if WRD and the daily sources are not yet available,
+    # pdp3.sh falls back to Wuhan's hourly GPS+GLONASS navigation builder.
+    required: false
     description: Broadcast navigation RINEX 3
 
   - spec: LEAP_SEC
     required: true
+    refresh_on_force: false
     description: Leap second table
 
   - spec: SAT_PARAMS
     required: true
+    refresh_on_force: false
     description: Satellite metadata parameters table
 
   # ---------------------------------------------------------------------------
@@ -68,28 +90,35 @@ dependencies:
   # ---------------------------------------------------------------------------
   - spec: FILE_NAME_TABLE
     required: true
+    refresh_on_force: false
     description: Satellite name/identifier lookup table
 
   - spec: OCEAN_TIDE_FES2004
     required: true
+    refresh_on_force: false
     description: FES2004 ocean tide model coefficients
 
   - spec: OCEAN_LOAD_GREEN
     required: true
+    refresh_on_force: false
     description: Green's function coefficients for ocean tidal loading
 
   - spec: GPT3_GRID
     required: true
+    refresh_on_force: false
     description: GPT3 global pressure and temperature model grid
 
   - spec: OCEAN_LOAD_PROGRAM
     required: true
+    refresh_on_force: false
     description: Pre-computed ocean loading parameters
 
   - spec: OROGRAPHY_1X1
     required: true
+    refresh_on_force: false
     description: Ellipsoidal terrain height grid (1x1)
 
   - spec: OROGRAPHY
     required: true
+    refresh_on_force: false
     description: Ellipsoidal terrain height grid (VMF1)

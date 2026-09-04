@@ -114,6 +114,19 @@ products:
     directory: {pattern: "root_ftp/IGS/products/{GPSWEEK}/"}
 
   # ── Broadcast navigation ─────────────────────────────────────────
+  # BKG's Broadcast Working Group publishes this rolling mixed-GNSS
+  # file during the current UTC day, before BRDC00IGS is available.
+  # ex: BRDC00WRD_R_20262470000_01D_MN.rnx.gz
+  - id: bkg_nav_wrd
+    product_name: RNX3_BRDC
+    server_id: bkg_https
+    available: true
+    description: Rolling current-day mixed-GNSS broadcast navigation (RINEX 3)
+    parameters:
+      - {name: CCC, value: WRD}
+      - {name: D, value: M}
+    directory: {pattern: "root_ftp/IGS/BRDC/{YYYY}/{DDD}/"}
+
   # ex: BRDC00IGS_R_20250150000_01D_MN.rnx.gz
   - id: bkg_nav
     product_name: RNX3_BRDC

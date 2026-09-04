@@ -96,13 +96,20 @@ def env(tmp_path: Path):
     }
 
 
-def _download(env, filename: str = "TEST.SP3", checksum: str | None = None) -> Path | None:
+def _download(
+    env,
+    filename: str = "TEST.SP3",
+    checksum: str | None = None,
+    *,
+    force: bool = False,
+) -> Path | None:
     query = _make_query(env["remote_root"], filename, checksum)
     return env["wormhole"].download_one(
         query=query,
         local_resource_id="local_config",
         local_factory=env["workspace"],
         date=TEST_DATE,
+        force=force,
     )
 
 
@@ -157,6 +164,44 @@ class TestTruncatedDownload:
         assert result.read_bytes() == REMOTE_CONTENT
         assert len(calls) == 2
 
+    def test_failed_url_is_not_retried_again_in_same_run(self, env, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def _always_truncated(self, hostname, remote_path, target_dir):
+            calls.append(1)
+            local = Path(target_dir) / Path(remote_path).name
+            local.write_bytes(REMOTE_CONTENT[:10])
+            return local
+
+        monkeypatch.setattr(ConnectionPoolFactory, "download_file", _always_truncated)
+
+        assert _download(env) is None
+        assert len(calls) == 2
+        assert _download(env) is None
+        assert len(calls) == 2
+
+    def test_failed_url_can_be_retried_in_next_run(self, env, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def _download_after_publication(self, hostname, remote_path, target_dir):
+            calls.append(1)
+            local = Path(target_dir) / Path(remote_path).name
+            content = REMOTE_CONTENT[:10] if len(calls) <= 2 else REMOTE_CONTENT
+            local.write_bytes(content)
+            return local
+
+        monkeypatch.setattr(ConnectionPoolFactory, "download_file", _download_after_publication)
+
+        assert _download(env) is None
+        assert len(calls) == 2
+
+        env["wormhole"].reset_failed_downloads()
+
+        result = _download(env)
+        assert result is not None
+        assert result.read_bytes() == REMOTE_CONTENT
+        assert len(calls) == 3
+
 
 # ── Cached files ──────────────────────────────────────────────────
 
@@ -190,6 +235,16 @@ class TestCachedFile:
         )
         assert _download(env) == cached
         assert calls == []
+
+    def test_force_redownload_replaces_valid_cache(self, env) -> None:
+        cached = env["sink_dir"] / "TEST.SP3"
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(b"valid but stale product")
+
+        result = _download(env, force=True)
+
+        assert result == cached
+        assert result.read_bytes() == REMOTE_CONTENT
 
     def test_corrupt_cache_is_evicted_and_redownloaded(self, env) -> None:
         """A cached file whose hash no longer matches its sidecar must be

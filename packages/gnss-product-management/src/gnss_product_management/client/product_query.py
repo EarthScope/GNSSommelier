@@ -24,6 +24,12 @@ from gnss_product_management.specifications.remote.resource import SearchTarget
 logger = logging.getLogger(__name__)
 
 
+def _remote_uri(protocol: str, hostname: str, directory: str, filename: str) -> str:
+    """Build a remote URI without duplicating schemes or path separators."""
+    base = hostname if "://" in hostname else f"{protocol}://{hostname}"
+    return f"{base.rstrip('/')}/{directory.strip('/')}/{filename}"
+
+
 class ProductQuery:
     """Fluent builder for constructing and executing a GNSS product search.
 
@@ -342,6 +348,13 @@ class ProductQuery:
                 continue
             seen[key] = True
             params = {p.name: p.value for p in rq.product.parameters if p.value is not None}
+            # Search targets may retain wildcard regexes for unconstrained
+            # filename axes (for example TTT/PPP on Wuhan ORBIT).  Replace
+            # those patterns with metadata parsed from the actual match so
+            # callers can group candidates by their real product family.
+            classified = self._search_planner._product_registry.classify(filename)
+            if classified and classified.get("product") == rq.product.name:
+                params.update(classified.get("parameters", {}))
             protocol = (rq.server.protocol or "").upper()
             is_local = protocol in ("FILE", "LOCAL")
             if is_local:
@@ -352,8 +365,11 @@ class ProductQuery:
                 )
             else:
                 proto = (rq.server.protocol or "ftp").lower()
-                uri = (
-                    f"{proto}://{hostname}/{rq.directory.value or rq.directory.pattern}/{filename}"  # type: ignore[union-attr]
+                uri = _remote_uri(
+                    proto,
+                    hostname,
+                    rq.directory.value or rq.directory.pattern,  # type: ignore[union-attr]
+                    filename,
                 )
             r = FoundResource(
                 product=rq.product.name,
