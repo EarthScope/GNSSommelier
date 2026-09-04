@@ -94,12 +94,12 @@ class TestWuhanResourceFinding:
 
 
 # ---------------------------------------------------------------------------
-# CODE (FTP) — ftp.aiub.unibe.ch
+# CODE (HTTPS) — www.aiub.unibe.ch/download
 # ---------------------------------------------------------------------------
 
 
 class TestCODResourceFinding:
-    """Search for products on CODE FTP."""
+    """Search for products through the CODE HTTPS archive."""
 
     def test_orbit_found(self, cod_qf, fetcher, test_date) -> None:
         results = _search_remote(cod_qf, fetcher, test_date, "ORBIT")
@@ -125,14 +125,14 @@ class TestCODResourceFinding:
             for r in found
         )
 
-    def test_orbit_directory_is_code_year(self, cod_qf, fetcher, test_date) -> None:
-        """CODE orbit files should be under CODE/{YYYY}/."""
+    def test_orbit_directory_is_code_root(self, cod_qf, fetcher, test_date) -> None:
+        """AIUB's HTTPS browser exposes products from the CODE root."""
         results = _search_remote(cod_qf, fetcher, test_date, "ORBIT")
         found = _assert_found(results, "ORBIT")
         for r in found:
             d = r.directory
             d_str = d.pattern if isinstance(d, PathTemplate) else str(d)
-            assert "CODE/2025" in d_str
+            assert d_str == "CODE/"
 
     def test_orbit_filenames_contain_cod(self, cod_qf, fetcher, test_date) -> None:
         results = _search_remote(cod_qf, fetcher, test_date, "ORBIT")

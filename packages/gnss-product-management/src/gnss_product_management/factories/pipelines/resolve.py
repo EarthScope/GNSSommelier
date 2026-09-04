@@ -77,6 +77,7 @@ class ResolvePipeline:
         self._env = env
         self._workspace = workspace
         transport = transport or WormHole(max_connections=max_connections, product_registry=env)
+        self._transport = transport
         planner = SearchPlanner(product_registry=env, workspace=workspace)
         self._query = ProductQuery(wormhole=transport, search_planner=planner)
         self._downloader = DownloadPipeline(
@@ -111,6 +112,9 @@ class ResolvePipeline:
             A tuple of (:class:`DependencyResolution`, lockfile path or
             ``None`` if nothing was resolved).
         """
+        # A failed URL should be suppressed only within one resolution run.
+        # Product publication state may change before this client is reused.
+        self._transport.reset_failed_downloads()
         version = get_package_version()
         lockfile_dir = self._workspace.lockfile_dir(sink_id)
         manager = LockfileManager(lockfile_dir)

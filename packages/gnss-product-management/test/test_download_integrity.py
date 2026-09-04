@@ -180,6 +180,28 @@ class TestTruncatedDownload:
         assert _download(env) is None
         assert len(calls) == 2
 
+    def test_failed_url_can_be_retried_in_next_run(self, env, monkeypatch) -> None:
+        calls: list[int] = []
+
+        def _download_after_publication(self, hostname, remote_path, target_dir):
+            calls.append(1)
+            local = Path(target_dir) / Path(remote_path).name
+            content = REMOTE_CONTENT[:10] if len(calls) <= 2 else REMOTE_CONTENT
+            local.write_bytes(content)
+            return local
+
+        monkeypatch.setattr(ConnectionPoolFactory, "download_file", _download_after_publication)
+
+        assert _download(env) is None
+        assert len(calls) == 2
+
+        env["wormhole"].reset_failed_downloads()
+
+        result = _download(env)
+        assert result is not None
+        assert result.read_bytes() == REMOTE_CONTENT
+        assert len(calls) == 3
+
 
 # ── Cached files ──────────────────────────────────────────────────
 

@@ -72,6 +72,11 @@ class WormHole:
 
     # -- Public API ------------------------------------------------
 
+    def reset_failed_downloads(self) -> None:
+        """Forget failures recorded during the previous resolution run."""
+        with self._failed_downloads_lock:
+            self._failed_downloads.clear()
+
     def search(self, targets: list[SearchTarget]) -> list[SearchTarget]:
         """Search every target's server/directory for matching files.
 

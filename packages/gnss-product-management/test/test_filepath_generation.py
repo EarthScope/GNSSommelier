@@ -304,12 +304,12 @@ class TestSearchPlannerFilepaths:
             fn = q.product.filename.pattern
             assert "GIM" in fn and "INX" in fn
 
-    def test_ionex_directory_contains_year(self, cod_qf, test_date) -> None:
+    def test_ionex_directory_uses_code_root(self, cod_qf, test_date) -> None:
         queries = cod_qf.get(date=test_date, product={"name": "IONEX"})
         remote = [q for q in queries if q.server.protocol != "file"]
         for q in remote:
             d = q.directory.pattern
-            assert "2025" in d
+            assert d == "CODE/"
 
     def test_brdc_filename_contains_brdc(self, wuhan_qf, test_date) -> None:
         queries = wuhan_qf.get(date=test_date, product={"name": "RNX3_BRDC"})
