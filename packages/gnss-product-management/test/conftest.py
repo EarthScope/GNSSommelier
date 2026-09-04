@@ -89,6 +89,11 @@ def cddis_env() -> ProductRegistry:
 
 
 @pytest.fixture(scope="session")
+def bkg_env() -> ProductRegistry:
+    return _build_env("bkg_config.yaml")
+
+
+@pytest.fixture(scope="session")
 def esa_env() -> ProductRegistry:
     return _build_env("esa_config.yaml")
 
@@ -141,6 +146,11 @@ def cod_qf(cod_env, workspace) -> SearchPlanner:
 @pytest.fixture(scope="session")
 def cddis_qf(cddis_env, workspace) -> SearchPlanner:
     return SearchPlanner(product_registry=cddis_env, workspace=workspace)
+
+
+@pytest.fixture(scope="session")
+def bkg_qf(bkg_env, workspace) -> SearchPlanner:
+    return SearchPlanner(product_registry=bkg_env, workspace=workspace)
 
 
 @pytest.fixture(scope="session")

@@ -6,6 +6,7 @@ Builds the ``pdp3`` command line from processing parameters.
 
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -89,6 +90,7 @@ class PrideCLIConfig(BaseModel):
     interval: float | None = None
     high_ion: bool | None = None
     tides: str = "SOP"
+    mapping_function: Literal["NIE", "GMF", "VM1", "VM3"] | None = None
 
     pride_configfile_path: Path | None = Field(
         None,
@@ -172,6 +174,9 @@ class PrideCLIConfig(BaseModel):
 
         if self.tides != "SOP":
             command.extend(["--tide-off", self.tides])
+
+        if self.mapping_function:
+            command.extend(["--mapping-func", self.mapping_function])
 
         command.extend(["--site", site])
 

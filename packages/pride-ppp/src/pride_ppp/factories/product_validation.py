@@ -71,7 +71,9 @@ def bias_phase_bands(path: Path) -> dict[str, set[str]]:
     }
 
 
-def _epoch_bounds(path: Path, product: str) -> tuple[datetime.datetime, datetime.datetime] | None:
+def product_epoch_bounds(
+    path: Path, product: str
+) -> tuple[datetime.datetime, datetime.datetime] | None:
     """Read coarse epoch bounds from SP3 or RINEX-clock content."""
     epochs: list[datetime.datetime] = []
     with path.open(errors="replace") as stream:
@@ -153,7 +155,7 @@ def validate_pride_products(
         path = by_spec.get(product)
         if not path or not path.exists():
             continue
-        bounds = _epoch_bounds(path, product)
+        bounds = product_epoch_bounds(path, product)
         if bounds is None:
             messages.append(f"{product}: epoch coverage could not be read")
         elif bounds[0] > obs_start or bounds[1] < obs_end:

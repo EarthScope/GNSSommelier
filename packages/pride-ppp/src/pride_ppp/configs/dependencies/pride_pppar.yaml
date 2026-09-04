@@ -17,6 +17,11 @@ package: PRIDE
 task: PPP
 
 preferences:
+  - parameter: CCC
+    sorting: [WRD, IGS, IGN, DLR]
+    description: >
+      Prefer BKG's rolling WRD mixed-navigation file when it is available;
+      otherwise use the normal daily navigation sources.
   - parameter: AAA
     sorting: [WUM, COD, GFZ, ESA]
     description: >
@@ -64,10 +69,9 @@ dependencies:
     description: Antenna phase center corrections (ANTEX)
 
   - spec: RNX3_BRDC
-    # pdp3.sh has its own same-day fallback (PrepareRinexNav): when the
-    # processing date is today, it merges hourly GPS+GLONASS nav from Wuhan
-    # instead of needing the daily merged multi-GNSS product. That fallback
-    # never runs if this wrapper aborts the day first for lacking it.
+    # BKG's rolling WRD file normally supplies same-day multi-GNSS navigation.
+    # Keep this optional: if WRD and the daily sources are not yet available,
+    # pdp3.sh falls back to Wuhan's hourly GPS+GLONASS navigation builder.
     required: false
     description: Broadcast navigation RINEX 3
 
