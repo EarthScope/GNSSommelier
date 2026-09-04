@@ -448,8 +448,15 @@ class TestRunPdp3:
 
         return install
 
-    def test_outputs_moved_with_extensions(self, fake_pdp3, tmp_path: Path) -> None:
-        fake_pdp3("touch kin_2025254_ncc1 res_2025254_ncc1")
+    def test_outputs_moved_with_extensions(
+        self, fake_pdp3, tmp_path: Path, monkeypatch
+    ) -> None:
+        fake_pdp3(
+            "touch kin_2025254_ncc1 res_2025254_ncc1 config.runtime "
+            "log_2025254_ncc1 cst_2025254_ncc1 stt_2025254_ncc1; "
+            "echo run-output"
+        )
+        monkeypatch.setattr(processor_module, "kin_to_kin_position_df", lambda path: MagicMock())
         out = tmp_path / "out"
 
         kin, res, rc, _ = PrideProcessor._run_pdp3(command=["pdp3"], site="NCC1", output_dir=out)
@@ -457,6 +464,11 @@ class TestRunPdp3:
         assert rc == 0
         assert kin == out / "kin_2025254_ncc1.kin" and kin.exists()
         assert res == out / "res_2025254_ncc1.res" and res.exists()
+        assert (out / "config_2025254_ncc1.config").exists()
+        assert (out / "log_2025254_ncc1.log").exists()
+        assert (out / "cst_2025254_ncc1.cst").exists()
+        assert (out / "stt_2025254_ncc1.stt").exists()
+        assert "run-output" in (out / "run_2025254_ncc1.log").read_text()
 
     def test_nonzero_exit_and_missing_output_are_logged(
         self, fake_pdp3, tmp_path: Path, caplog

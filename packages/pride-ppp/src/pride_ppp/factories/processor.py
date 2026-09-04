@@ -759,9 +759,10 @@ class PrideProcessor:
         ``pride_dir/{year}/{doy}/`` directory so these artefacts are
         available for inspection after the run.
 
-        After execution the method searches recursively for ``kin_*`` and
-        ``res_*`` output files matching *site*, appends ``.kin`` / ``.res``
-        extensions, and moves them to *output_dir*.
+        After execution the method searches recursively for the site outputs.
+        A valid solution preserves ``kin``, ``res``, the runtime config,
+        editing log, ambiguity constraints, residual statistics, and captured
+        console output in *output_dir* using a common ``YYYYDOY_site`` suffix.
 
         Args:
             command: Full pdp3 argument list from ``_build_pdp_command``.
@@ -878,6 +879,32 @@ class PrideProcessor:
                 shutil.move(str(src), str(dst))
                 res_out = dst
                 logger.info("Generated res file %s", dst)
+
+            if kin_out is not None:
+                # The validated KIN name is authoritative for the session ID,
+                # e.g. kin_2026247_ncc1 -> 2026247_ncc1.  Keep the actual
+                # runtime-mutated config rather than the pre-pdp3 template.
+                session_id = kin_out.stem.removeprefix("kin_")
+                ancillary = {
+                    "config": list(Path(tmpdir).rglob("config.*")),
+                    "log": list(Path(tmpdir).rglob(f"log_{session_id}")),
+                    "cst": list(Path(tmpdir).rglob(f"cst_{session_id}")),
+                    "stt": list(Path(tmpdir).rglob(f"stt_{session_id}")),
+                }
+                for kind, sources in ancillary.items():
+                    if not sources:
+                        logger.warning("pdp3 produced no %s output for %s", kind, session_id)
+                        continue
+                    destination = output_dir / f"{kind}_{session_id}.{kind}"
+                    shutil.move(str(sources[0]), str(destination))
+                    logger.info("Generated %s file %s", kind, destination)
+
+                run_log = output_dir / f"run_{session_id}.log"
+                sections = ["=== pdp3 stdout ===\n", result.stdout or ""]
+                if result.stderr:
+                    sections.extend(["\n=== pdp3 stderr ===\n", result.stderr])
+                run_log.write_text("".join(sections), encoding="utf-8")
+                logger.info("Generated run log %s", run_log)
 
         return kin_out, res_out, result.returncode, result.stderr
 
