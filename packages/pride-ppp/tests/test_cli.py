@@ -11,9 +11,7 @@ def test_frequency_combinations_are_separate_arguments() -> None:
 
 
 def test_mapping_function_is_passed_to_pdp3() -> None:
-    command = PrideCLIConfig(mapping_function="VM1").generate_pdp_command(
-        "NTH1", "/tmp/nth1.rnx"
-    )
+    command = PrideCLIConfig(mapping_function="VM1").generate_pdp_command("NTH1", "/tmp/nth1.rnx")
 
     index = command.index("--mapping-func")
     assert command[index + 1] == "VM1"

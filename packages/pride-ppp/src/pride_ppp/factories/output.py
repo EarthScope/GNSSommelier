@@ -96,7 +96,9 @@ def get_wrms_from_res(res_path):
                     if line == "":
                         break
                     line_data = line.split()
-                wrms = (sumOfSquares / sumOfWeights) ** 0.5 * 1000 if sumOfWeights else float("nan")  # in mm
+                wrms = (
+                    (sumOfSquares / sumOfWeights) ** 0.5 * 1000 if sumOfWeights else float("nan")
+                )  # in mm
                 data.append(wrms)
             else:
                 line = res_file.readline()

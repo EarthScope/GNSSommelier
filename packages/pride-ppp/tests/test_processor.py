@@ -448,9 +448,7 @@ class TestRunPdp3:
 
         return install
 
-    def test_outputs_moved_with_extensions(
-        self, fake_pdp3, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_outputs_moved_with_extensions(self, fake_pdp3, tmp_path: Path, monkeypatch) -> None:
         fake_pdp3(
             "touch kin_2025254_ncc1 res_2025254_ncc1 config.runtime "
             "log_2025254_ncc1 cst_2025254_ncc1 stt_2025254_ncc1; "

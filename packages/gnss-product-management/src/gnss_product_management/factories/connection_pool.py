@@ -18,6 +18,7 @@ import fsspec.utils
 
 logger = logging.getLogger(__name__)
 
+
 class ConnectionPool:
     """Thread-safe pool of fsspec filesystem instances for a single host.
 
@@ -274,9 +275,7 @@ class ConnectionPoolFactory:
                 html = conn.cat_file(listing_url)
                 if isinstance(html, bytes):
                     html = html.decode("utf-8", errors="replace")
-                download_prefix = re.escape(
-                    f"{hostname.rstrip('/')}/{directory.strip('/')}/"
-                )
+                download_prefix = re.escape(f"{hostname.rstrip('/')}/{directory.strip('/')}/")
                 return sorted(set(re.findall(rf'href="{download_prefix}([^"/]+)"', html)))
             raw = conn.ls(full_path, detail=False)
             return [Path(p).name for p in raw]

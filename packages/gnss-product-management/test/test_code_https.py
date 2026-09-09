@@ -24,12 +24,8 @@ def test_configured_https_listing_extracts_download_filenames(monkeypatch) -> No
     connection.cat_file.return_value = html
     monkeypatch.setattr(pool, "_connect", lambda: connection)
 
-    assert factory.list_directory(hostname, "CODE/") == [
-        "COD0OPSRAP_20262390000_01D_05M_ORB.SP3"
-    ]
-    connection.cat_file.assert_called_once_with(
-        "https://listing.example/browse?path=CODE"
-    )
+    assert factory.list_directory(hostname, "CODE/") == ["COD0OPSRAP_20262390000_01D_05M_ORB.SP3"]
+    connection.cat_file.assert_called_once_with("https://listing.example/browse?path=CODE")
 
 
 def test_code_spec_configures_aiub_listing_url(cod_qf, test_date) -> None:
@@ -39,10 +35,7 @@ def test_code_spec_configures_aiub_listing_url(cod_qf, test_date) -> None:
     assert remote
     assert all(
         target.server.listing_url
-        == (
-            "https://code.aiub.unibe.ch/s3_script/"
-            "aiub_s3_bucket_listing.php?path={directory}"
-        )
+        == ("https://code.aiub.unibe.ch/s3_script/aiub_s3_bucket_listing.php?path={directory}")
         for target in remote
     )
 
@@ -63,9 +56,9 @@ def test_code_precise_product_directory_matches_family(
     remote = [target for target in targets if target.server.protocol == "https"]
 
     assert remote
-    assert {
-        target.directory.value or target.directory.pattern for target in remote
-    } == {expected_directory}
+    assert {target.directory.value or target.directory.pattern for target in remote} == {
+        expected_directory
+    }
 
 
 @pytest.mark.parametrize(
@@ -83,9 +76,9 @@ def test_code_ionosphere_directory_matches_family(
     remote = [target for target in targets if target.server.protocol == "https"]
 
     assert remote
-    assert {
-        target.directory.value or target.directory.pattern for target in remote
-    } == {expected_directory}
+    assert {target.directory.value or target.directory.pattern for target in remote} == {
+        expected_directory
+    }
 
 
 def test_remote_uri_keeps_existing_https_scheme() -> None:
@@ -94,7 +87,4 @@ def test_remote_uri_keeps_existing_https_scheme() -> None:
         "https://www.aiub.unibe.ch/download",
         "CODE/",
         "COD0OPSRAP_20262390000_01D_05M_ORB.SP3",
-    ) == (
-        "https://www.aiub.unibe.ch/download/CODE/"
-        "COD0OPSRAP_20262390000_01D_05M_ORB.SP3"
-    )
+    ) == ("https://www.aiub.unibe.ch/download/CODE/COD0OPSRAP_20262390000_01D_05M_ORB.SP3")
