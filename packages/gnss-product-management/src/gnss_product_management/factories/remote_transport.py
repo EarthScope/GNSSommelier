@@ -337,8 +337,7 @@ class WormHole:
             decompressed_path = destination_path.with_suffix("")
             if (
                 not force
-                and
-                decompressed_path.exists()
+                and decompressed_path.exists()
                 and decompressed_path.stat().st_size > 0
                 and self._validate_cached_or_evict(decompressed_path)
             ):
@@ -354,8 +353,7 @@ class WormHole:
         # non-decompressed destination path.
         if (
             not force
-            and
-            destination_path.exists()
+            and destination_path.exists()
             and destination_path.stat().st_size > 0
             and self._validate_cached_or_evict(destination_path, query.checksum)
         ):

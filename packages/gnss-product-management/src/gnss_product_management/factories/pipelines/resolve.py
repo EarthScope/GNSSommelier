@@ -205,7 +205,9 @@ class ResolvePipeline:
                 q = q.sources(*centers)
             candidates = q.search()
             if force_download:
-                found = next((candidate for candidate in candidates if not candidate.is_local), None)
+                found = next(
+                    (candidate for candidate in candidates if not candidate.is_local), None
+                )
             else:
                 found = candidates[0] if candidates else None
         except Exception as exc:

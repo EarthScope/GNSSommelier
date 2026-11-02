@@ -20,9 +20,7 @@ def test_code_https_listing_extracts_download_filenames(monkeypatch) -> None:
     connection.cat_file.return_value = html
     monkeypatch.setattr(pool, "_connect", lambda: connection)
 
-    assert factory.list_directory(hostname, "CODE/") == [
-        "COD0OPSRAP_20262390000_01D_05M_ORB.SP3"
-    ]
+    assert factory.list_directory(hostname, "CODE/") == ["COD0OPSRAP_20262390000_01D_05M_ORB.SP3"]
 
 
 def test_remote_uri_keeps_existing_https_scheme() -> None:
@@ -31,7 +29,4 @@ def test_remote_uri_keeps_existing_https_scheme() -> None:
         "https://www.aiub.unibe.ch/download",
         "CODE/",
         "COD0OPSRAP_20262390000_01D_05M_ORB.SP3",
-    ) == (
-        "https://www.aiub.unibe.ch/download/CODE/"
-        "COD0OPSRAP_20262390000_01D_05M_ORB.SP3"
-    )
+    ) == ("https://www.aiub.unibe.ch/download/CODE/COD0OPSRAP_20262390000_01D_05M_ORB.SP3")
