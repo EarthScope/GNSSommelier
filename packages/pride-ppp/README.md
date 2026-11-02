@@ -121,6 +121,20 @@ resolution calls (one per date). Each resolved date writes its products to
 
 ---
 
+## Product family selection
+
+Default processing tries FIN, RTS, RAP, then ULT. Within each type it
+prefers WUM (Wuhan), COD (CODE), GFZ, then ESA. Orbit, clock, ERP, and
+bias products must share the generating analysis center, timeliness, and
+solution identifier (`AAA`, `TTT`, `PPP`). Attitude is optional in default
+mode; FINAL mode accepts only FIN and also requires attitude.
+
+Members of a family may be downloaded from different physical servers.
+For each member, alternate locations are tried before abandoning the family.
+Server protocol does not affect ranking; equal-ranked locations retain
+search discovery order. Existing valid aggregate lockfiles are reused;
+force product resolution to reconsider a cached selection.
+
 ## Output files
 
 | File | Location | Content |

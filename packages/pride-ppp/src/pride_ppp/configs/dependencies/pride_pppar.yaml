@@ -4,9 +4,8 @@
 # Products required for kinematic PPP ambiguity resolution
 # using the PRIDE-PPPAR engine (Wuhan University).
 #
-# The preferences define a cascade of analysis centres to try,
-# ordered by preference.  The resolver walks the list top-down
-# and picks the first centre that has all required files.
+# Families are tried by timeliness first, then generating analysis centre.
+# Required products must share AAA/TTT/PPP, but may use different mirrors.
 
 name: pride-pppar
 description: >
@@ -22,16 +21,16 @@ preferences:
     description: >
       Prefer BKG's rolling WRD mixed-navigation file when it is available;
       otherwise use the normal daily navigation sources.
-  - parameter: AAA
-    sorting: [WUM, COD, GFZ, ESA]
-    description: >
-      Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
   - parameter: TTT
     sorting: [FIN, RTS, RAP, ULT]
     description: >
       Prefer final solutions, then Wuhan real-time streaming products,
       then rapid and ultra-rapid products. RTS biases include the Galileo
       phase signals needed for E17 processing before RAP products do.
+  - parameter: AAA
+    sorting: [WUM, COD, GFZ, ESA]
+    description: >
+      Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
 
 bundles:
   - name: precise-products

@@ -371,88 +371,75 @@ class ResolvePipeline:
                     ranks.append(len(preference.sorting))
             return (*ranks, key)
 
-        if centers is not None:
-            center_stages: list[list[str] | None] = [centers]
-        else:
-            preferred_centers = next(
-                (pref.sorting for pref in preferences if pref.parameter == "AAA"), []
-            )
-            center_stages = (
-                [[preferred_centers[0]], preferred_centers[1:]]
-                if len(preferred_centers) > 1
-                else [None]
-            )
-
-        for stage_centers in center_stages:
-            logger.info("Searching bundle %s center stage %s", bundle.name, stage_centers or "all")
-            with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
-                searched = list(
-                    executor.map(
-                        lambda dep: self._search_candidates(
-                            dep,
-                            date=date,
-                            preferences=preferences,
-                            centers=stage_centers,
-                        ),
-                        members,
-                    )
+        with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
+            searched = list(
+                executor.map(
+                    lambda dep: self._search_candidates(
+                        dep,
+                        date=date,
+                        preferences=preferences,
+                        centers=centers,
+                    ),
+                    members,
                 )
+            )
 
-            candidates_by_member: dict[str, dict[tuple[str, ...], list]] = {}
-            for dep, candidates in zip(members, searched, strict=True):
-                if force_download and dep.refresh_on_force:
-                    candidates = [candidate for candidate in candidates if not candidate.is_local]
-                grouped: dict[tuple[str, ...], list] = {}
+        candidates_by_member: dict[str, dict[tuple[str, ...], list]] = {}
+        for dep, candidates in zip(members, searched, strict=True):
+            if force_download and dep.refresh_on_force:
+                candidates = [candidate for candidate in candidates if not candidate.is_local]
+            grouped: dict[tuple[str, ...], list] = {}
+            for candidate in candidates:
+                key = tuple(candidate.parameters.get(field, "") for field in bundle.coherence)
+                grouped.setdefault(key, []).append(candidate)
+            candidates_by_member[dep.spec] = grouped
+
+        family_keys = set().union(*(set(groups) for groups in candidates_by_member.values()))
+        for key in sorted(family_keys, key=family_rank):
+            present = [dep.spec for dep in members if key in candidates_by_member[dep.spec]]
+            missing = [dep.spec for dep in required if key not in candidates_by_member[dep.spec]]
+            log = logger.warning if missing else logger.info
+            log(
+                "Bundle preflight %s family %s: present=%s; missing_required=%s",
+                bundle.name,
+                key,
+                present,
+                missing,
+            )
+
+        viable = set(candidates_by_member[required[0].spec]) if required else set()
+        for dep in required[1:]:
+            viable &= set(candidates_by_member[dep.spec])
+
+        for key in sorted(viable, key=family_rank):
+
+            def materialize_member(dep: Dependency) -> ResolvedDependency:
+                # Mirrors may host the same generating-AC family. Exhaust those
+                # locations before rejecting the family or omitting an optional member.
+                candidates = candidates_by_member[dep.spec].get(key, [])
                 for candidate in candidates:
-                    key = tuple(candidate.parameters.get(field, "") for field in bundle.coherence)
-                    grouped.setdefault(key, []).append(candidate)
-                candidates_by_member[dep.spec] = grouped
-
-            family_keys = set().union(*(set(groups) for groups in candidates_by_member.values()))
-            for key in sorted(family_keys, key=family_rank):
-                present = [dep.spec for dep in members if key in candidates_by_member[dep.spec]]
-                missing = [
-                    dep.spec for dep in required if key not in candidates_by_member[dep.spec]
-                ]
-                log = logger.warning if missing else logger.info
-                log(
-                    "Bundle preflight %s family %s: present=%s; missing_required=%s",
-                    bundle.name,
-                    key,
-                    present,
-                    missing,
-                )
-
-            viable = set(candidates_by_member[required[0].spec]) if required else set()
-            for dep in required[1:]:
-                viable &= set(candidates_by_member[dep.spec])
-
-            for key in sorted(viable, key=family_rank):
-                selected = {
-                    dep.spec: candidates_by_member[dep.spec].get(key, [None])[0] for dep in members
-                }
-                with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
-                    results = list(
-                        executor.map(
-                            lambda dep: self._materialize(
-                                dep,
-                                selected[dep.spec],
-                                date=date,
-                                sink_id=sink_id,
-                                download=download,
-                                force_download=force_download,
-                            ),
-                            members,
-                        )
+                    result = self._materialize(
+                        dep,
+                        candidate,
+                        date=date,
+                        sink_id=sink_id,
+                        download=download,
+                        force_download=force_download,
                     )
-                if all(result.status != "missing" for result in results if result.required):
-                    logger.info("Selected %s bundle family %s", bundle.name, key)
-                    return results
-                logger.warning(
-                    "Rejected %s bundle family %s after a required product failed",
-                    bundle.name,
-                    key,
-                )
+                    if result.status != "missing":
+                        return result
+                return ResolvedDependency(spec=dep.spec, required=dep.required, status="missing")
+
+            with ThreadPoolExecutor(max_workers=max(1, len(members))) as executor:
+                results = list(executor.map(materialize_member, members))
+            if all(result.status != "missing" for result in results if result.required):
+                logger.info("Selected %s bundle family %s", bundle.name, key)
+                return results
+            logger.warning(
+                "Rejected %s bundle family %s after a required product failed",
+                bundle.name,
+                key,
+            )
 
         logger.warning("No complete downloadable family found for bundle %s", bundle.name)
         return [

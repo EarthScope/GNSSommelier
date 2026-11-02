@@ -88,3 +88,34 @@ def test_remote_uri_keeps_existing_https_scheme() -> None:
         "CODE/",
         "COD0OPSRAP_20262390000_01D_05M_ORB.SP3",
     ) == ("https://www.aiub.unibe.ch/download/CODE/COD0OPSRAP_20262390000_01D_05M_ORB.SP3")
+
+
+def test_code_final_attitude_directory_and_filename(cod_qf, test_date) -> None:
+    import re
+
+    targets = cod_qf.get(
+        date=test_date,
+        product={"name": "ATTOBX"},
+        parameters={"AAA": "COD", "PPP": "OPS", "TTT": "FIN"},
+    )
+    remote = [target for target in targets if target.server.protocol == "https"]
+    assert remote
+    assert {target.directory.value or target.directory.pattern for target in remote} == {
+        "CODE/2025/"
+    }
+    assert any(
+        re.fullmatch(
+            target.product.filename.value or target.product.filename.pattern,
+            "COD0OPSFIN_20250150000_01D_30S_ATT.OBX.gz",
+        )
+        for target in remote
+    )
+
+
+def test_code_attitude_does_not_advertise_nonfinal(cod_qf, test_date) -> None:
+    targets = cod_qf.get(
+        date=test_date,
+        product={"name": "ATTOBX"},
+        parameters={"AAA": "COD", "TTT": "RTS"},
+    )
+    assert not [target for target in targets if target.server.protocol == "https"]

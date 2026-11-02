@@ -116,6 +116,19 @@ products:
       - {name: PPP, value: OPS}
     directory: {pattern: "CODE/"}
 
+  # ── Satellite attitude ─────────────────────────────────────────
+  - id: code_attitude_final
+    product_name: ATTOBX
+    server_id: code_https
+    available: true
+    description: Archived CODE final satellite attitude quaternions (ORBEX)
+    parameters:
+      - {name: AAA, value: COD}
+      - {name: TTT, value: FIN}
+      - {name: PPP, value: OPS}
+      - {name: SMP, value: 30S}
+    directory: {pattern: "CODE/{YYYY}/"}
+
   # ── Ionosphere ─────────────────────────────────────────────────
   - id: code_gim_final
     product_name: IONEX

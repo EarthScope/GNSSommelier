@@ -14,15 +14,14 @@ package: PRIDE
 task: PPP
 
 preferences:
-  - parameter: AAA
-    sorting: [WUM, COD, GFZ, ESA]
-    description: >
-      Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
-
   - parameter: TTT
     sorting: [FIN]
     description: >
       Only accept final solutions.
+  - parameter: AAA
+    sorting: [WUM, COD, GFZ, ESA]
+    description: >
+      Prefer Wuhan, then CODE, GFZ, ESA analysis centres.
 
 bundles:
   - name: precise-products

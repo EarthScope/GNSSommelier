@@ -627,7 +627,7 @@ class PrideProcessor:
         """Resolve all dependencies for a single UTC date.
 
         Delegates to :meth:`GNSSClient.resolve_dependencies`.  The resolver
-        walks the dependency spec's preference list (centre × timeliness)
+        walks the dependency spec's preference list (timeliness × centre)
         top-down and for each product either verifies a local copy already
         exists or downloads it.
 
