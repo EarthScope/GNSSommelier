@@ -44,7 +44,7 @@ class TestCODGIMExpansion:
     def test_ionex_server_protocol(self, cod_qf, test_date) -> None:
         queries = _get_remote_queries(cod_qf, test_date, "IONEX")
         for q in queries:
-            assert q.server.protocol.lower() == "ftp"
+            assert q.server.protocol.lower() == "https"
 
     def test_ionex_directory_not_empty(self, cod_qf, test_date) -> None:
         queries = _get_remote_queries(cod_qf, test_date, "IONEX")

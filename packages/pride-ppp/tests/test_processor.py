@@ -25,13 +25,15 @@ try:
 except ImportError as e:
     pytest.skip(f"gnss-product-management not installed: {e}", allow_module_level=True)
 
-from pride_ppp.factories import processor as processor_module
 from pride_ppp.defaults import PRIDE_PPPAR_SPEC
+from pride_ppp.factories import processor as processor_module
 from pride_ppp.factories.processor import (
     MissingProductsError,
     PrideProcessor,
+    _prepare_rinex_for_product_coverage,
     _resolution_to_satellite_products,
     _resolution_to_table_dir,
+    _stage_broadcast_navigation,
 )
 
 
@@ -41,6 +43,14 @@ def test_default_product_timeliness_prefers_rts_over_rap() -> None:
     timeliness = next(p for p in spec.preferences if p.parameter == "TTT")
 
     assert timeliness.sorting == ["FIN", "RTS", "RAP", "ULT"]
+
+
+def test_default_navigation_allows_pdp3_hourly_fallback() -> None:
+    """Missing same-day mixed nav must not block PRIDE's GPS/GLO fallback."""
+    spec = DependencySpec.from_yaml(PRIDE_PPPAR_SPEC)
+    navigation = next(dep for dep in spec.dependencies if dep.spec == "RNX3_BRDC")
+
+    assert navigation.required is False
 
 
 @pytest.fixture
@@ -107,6 +117,7 @@ def test_resolution_to_satellite_products_with_string_local_path(
     assert satellite_products.satellite_orbit == Path(temp_product_files["orbit"]).name
     assert satellite_products.satellite_clock == Path(temp_product_files["clock"]).name
     assert satellite_products.code_phase_bias == Path(temp_product_files["bias"]).name
+    assert satellite_products.quaternions == "NONE"
     assert product_dir is not None
     assert product_dir == Path(temp_product_files["orbit"]).parent
 
@@ -127,8 +138,31 @@ def test_resolution_to_satellite_products_with_none_local_path() -> None:
     # Should not raise; returns empty products
     satellite_products, product_dir = _resolution_to_satellite_products(resolution)
 
-    assert satellite_products.satellite_orbit is None
+    assert satellite_products.satellite_orbit == "Default"
+    assert satellite_products.quaternions == "NONE"
     assert product_dir is None
+
+
+def test_resolution_to_satellite_products_keeps_resolved_attitude(
+    temp_product_files: dict[str, str],
+) -> None:
+    attitude = Path(temp_product_files["orbit"]).with_name("attitude.OBX")
+    attitude.write_text("attitude\n")
+    resolution = DependencyResolution(
+        spec_name="test",
+        resolved=[
+            ResolvedDependency(
+                spec="ATTOBX",
+                required=False,
+                status="local",
+                local_path=str(attitude),
+            )
+        ],
+    )
+
+    satellite_products, _ = _resolution_to_satellite_products(resolution)
+
+    assert satellite_products.quaternions == "attitude.OBX"
 
 
 def test_resolution_to_table_dir_with_string_local_path(
@@ -192,6 +226,162 @@ def test_resolution_to_table_dir_with_none_local_path() -> None:
     assert table_dir is None
 
 
+def test_stage_broadcast_navigation_uses_legacy_pdp3_name(tmp_path: Path) -> None:
+    source = tmp_path / "products" / "BRDC00IGS_R_20262450000_01D_MN.rnx"
+    source.parent.mkdir()
+    source.write_text("mixed navigation\n")
+    rinex = tmp_path / "observations" / "NCC100USA_R_20262450000_01D_02S_MO.rnx"
+    rinex.parent.mkdir()
+    rinex.write_text("observations\n")
+    resolution = DependencyResolution(
+        spec_name="test",
+        resolved=[
+            ResolvedDependency(
+                spec="RNX3_BRDC",
+                required=True,
+                status="downloaded",
+                local_path=str(source),
+            )
+        ],
+    )
+
+    staged = _stage_broadcast_navigation(resolution, rinex, datetime.date(2026, 9, 2))
+
+    assert staged == rinex.parent / "brdm2450.26p"
+    assert staged.read_text() == "mixed navigation\n"
+
+
+def test_current_day_without_mixed_nav_limits_pdp3_to_gps_glonass(tmp_path: Path) -> None:
+    proc = object.__new__(PrideProcessor)
+    proc._cli_config = processor_module.PrideCLIConfig()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    resolution = DependencyResolution(
+        spec_name="test",
+        resolved=[
+            ResolvedDependency(
+                spec="RNX3_BRDC",
+                required=False,
+                status="missing",
+                local_path=None,
+            )
+        ],
+    )
+
+    command = proc._build_pdp_command(
+        tmp_path / "obs.rnx",
+        "NCC1",
+        tmp_path / "config_file",
+        resolution=resolution,
+        date=today,
+    )
+
+    assert command[command.index("--system") + 1] == "GR"
+    assert command[command.index("--mapping-func") + 1] == "GMF"
+    frequency_args = command[command.index("--frequency") + 1 : command.index("--loose-edit")]
+    assert frequency_args == ["G12", "R12"]
+
+
+def test_current_day_with_mixed_nav_keeps_configured_constellations(tmp_path: Path) -> None:
+    proc = object.__new__(PrideProcessor)
+    proc._cli_config = processor_module.PrideCLIConfig()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    navigation = tmp_path / "BRDC00WRD_R_today_01D_MN.rnx"
+    navigation.write_text("navigation\n")
+    resolution = DependencyResolution(
+        spec_name="test",
+        resolved=[
+            ResolvedDependency(
+                spec="RNX3_BRDC",
+                required=False,
+                status="downloaded",
+                local_path=str(navigation),
+            )
+        ],
+    )
+
+    command = proc._build_pdp_command(
+        tmp_path / "obs.rnx",
+        "NCC1",
+        tmp_path / "config_file",
+        resolution=resolution,
+        date=today,
+    )
+
+    assert "--system" not in command
+    assert command[command.index("--mapping-func") + 1] == "GMF"
+    frequency_args = command[command.index("--frequency") + 1 : command.index("--loose-edit")]
+    assert frequency_args == ["G12", "R12", "E17", "C27", "J12"]
+
+
+def test_historical_day_keeps_requested_vmf1(tmp_path: Path) -> None:
+    proc = object.__new__(PrideProcessor)
+    proc._cli_config = processor_module.PrideCLIConfig(mapping_function="VM1")
+    resolution = DependencyResolution(spec_name="test", resolved=[])
+
+    command = proc._build_pdp_command(
+        tmp_path / "obs.rnx",
+        "NCC1",
+        tmp_path / "config_file",
+        resolution=resolution,
+        date=datetime.date(2025, 1, 1),
+    )
+
+    assert command[command.index("--mapping-func") + 1] == "VM1"
+
+
+def test_current_day_is_clipped_to_common_product_coverage(tmp_path: Path, monkeypatch) -> None:
+    proc = object.__new__(PrideProcessor)
+    proc._cli_config = processor_module.PrideCLIConfig()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    rinex = tmp_path / "obs.rnx"
+    ymd = today.strftime("%Y %m %d")
+    rinex.write_text(
+        "                                                            END OF HEADER\n"
+        f"> {ymd} 00 00 00.0000000  0  1\nG01 observations\n"
+        f"> {ymd} 09 55 00.0000000  0  1\nG01 observations\n"
+        f"> {ymd} 10 00 00.0000000  0  1\nG01 observations\n"
+    )
+    orbit = tmp_path / "orbit.SP3"
+    clock = tmp_path / "clock.CLK"
+    orbit.write_text("orbit\n")
+    clock.write_text("clock\n")
+    resolution = DependencyResolution(
+        spec_name="test",
+        resolved=[
+            ResolvedDependency(
+                spec="ORBIT", required=True, status="downloaded", local_path=str(orbit)
+            ),
+            ResolvedDependency(
+                spec="CLOCK", required=True, status="downloaded", local_path=str(clock)
+            ),
+        ],
+    )
+    product_start = datetime.datetime.combine(today, datetime.time(0, 0))
+    orbit_end = datetime.datetime.combine(today, datetime.time(10, 0))
+    clock_end = datetime.datetime.combine(today, datetime.time(10, 4, 30))
+    observation_end = datetime.datetime.combine(today, datetime.time(11, 30))
+    monkeypatch.setattr(
+        processor_module,
+        "product_epoch_bounds",
+        lambda path, product: (
+            product_start,
+            orbit_end if product == "ORBIT" else clock_end,
+        ),
+    )
+    monkeypatch.setattr(
+        processor_module,
+        "rinex_get_time_range",
+        lambda path: (product_start, observation_end),
+    )
+
+    clipped = _prepare_rinex_for_product_coverage(rinex, resolution, today, tmp_path / "work")
+
+    assert clipped != rinex
+    text = clipped.read_text()
+    assert "09 55 00" in text
+    assert "10 00 00" not in text
+
+
 @pytest.fixture
 def processor() -> PrideProcessor:
     """A PrideProcessor without running __init__ — _validate_kinfile is self-free."""
@@ -224,7 +414,8 @@ class TestValidateKinfile:
         assert processor._validate_kinfile(garbage) is False
 
 
-def test_resolve_forwards_product_download_override(processor: PrideProcessor) -> None:
+def test_resolve_forwards_product_download_override(processor: PrideProcessor, tmp_path) -> None:
+    processor._pride_dir = tmp_path
     processor._client = MagicMock()
     processor._dep_spec = MagicMock()
     processor._override_products_download = True
@@ -259,8 +450,13 @@ class TestRunPdp3:
 
         return install
 
-    def test_outputs_moved_with_extensions(self, fake_pdp3, tmp_path: Path) -> None:
-        fake_pdp3("touch kin_2025254_ncc1 res_2025254_ncc1")
+    def test_outputs_moved_with_extensions(self, fake_pdp3, tmp_path: Path, monkeypatch) -> None:
+        fake_pdp3(
+            "touch kin_2025254_ncc1 res_2025254_ncc1 config.runtime "
+            "log_2025254_ncc1 cst_2025254_ncc1 stt_2025254_ncc1; "
+            "echo run-output"
+        )
+        monkeypatch.setattr(processor_module, "kin_to_kin_position_df", lambda path: MagicMock())
         out = tmp_path / "out"
 
         kin, res, rc, _ = PrideProcessor._run_pdp3(command=["pdp3"], site="NCC1", output_dir=out)
@@ -268,6 +464,11 @@ class TestRunPdp3:
         assert rc == 0
         assert kin == out / "kin_2025254_ncc1.kin" and kin.exists()
         assert res == out / "res_2025254_ncc1.res" and res.exists()
+        assert (out / "config_2025254_ncc1.config").exists()
+        assert (out / "log_2025254_ncc1.log").exists()
+        assert (out / "cst_2025254_ncc1.cst").exists()
+        assert (out / "stt_2025254_ncc1.stt").exists()
+        assert "run-output" in (out / "run_2025254_ncc1.log").read_text()
 
     def test_nonzero_exit_and_missing_output_are_logged(
         self, fake_pdp3, tmp_path: Path, caplog

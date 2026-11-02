@@ -12,7 +12,6 @@ from typing import cast
 from gnss_product_management.factories.models import FoundResource
 from gnss_product_management.factories.ranking import (
     sort_by_preferences,
-    sort_by_protocol,
 )
 from gnss_product_management.factories.remote_transport import WormHole
 from gnss_product_management.factories.search_planner import SearchPlanner
@@ -226,13 +225,12 @@ class ProductQuery:
         """Return sorted :class:`SearchTarget` candidates before deduplication.
 
         Builds queries via :class:`SearchPlanner`, expands them through
-        :class:`WormHole`, then applies preference and protocol sorting.
+        :class:`WormHole`, then applies configured preference sorting.
         The result is the pre-deduplication list used both by :meth:`search`
         and by :class:`ResolvePipeline`.
 
         Returns:
-            Sorted list of :class:`SearchTarget` objects, local/file first,
-            then ordered by *preferences* within each protocol tier.
+            Sorted list of :class:`SearchTarget` objects ordered by *preferences*.
 
         Raises:
             ValueError: If :meth:`for_product` or :meth:`on` have not been called.
@@ -266,7 +264,7 @@ class ProductQuery:
         )
         if self._preferences:
             expanded = sort_by_preferences(expanded, self._preferences)
-        return sort_by_protocol(expanded)
+        return expanded
 
     def _search_range(self) -> list[FoundResource]:
         """Execute a search for every date in the configured range.
@@ -311,8 +309,7 @@ class ProductQuery:
 
         Returns:
             Ranked list of :class:`FoundResource` objects, best first.
-            Local/file results precede remote ones; within each protocol
-            tier results are ordered by *preferences*.
+            Results are ordered by *preferences*, independently of server protocol.
             When :meth:`on_range` was used, results from all dates are
             returned as a flat combined list.
 
@@ -348,6 +345,13 @@ class ProductQuery:
                 continue
             seen[key] = True
             params = {p.name: p.value for p in rq.product.parameters if p.value is not None}
+            # Search targets may retain wildcard regexes for unconstrained
+            # filename axes (for example TTT/PPP on Wuhan ORBIT).  Replace
+            # those patterns with metadata parsed from the actual match so
+            # callers can group candidates by their real product family.
+            classified = self._search_planner._product_registry.classify(filename)
+            if classified and classified.get("product") == rq.product.name:
+                params.update(classified.get("parameters", {}))
             protocol = (rq.server.protocol or "").upper()
             is_local = protocol in ("FILE", "LOCAL")
             if is_local:

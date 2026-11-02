@@ -2,7 +2,7 @@
 Tests: Broadcast navigation products via SearchPlanner.
 
 Products: RNX3_BRDC
-Centers : Wuhan (FTP), CDDIS (FTPS)
+Centers : Wuhan (FTP), CDDIS (FTPS), BKG (HTTPS)
 """
 
 from __future__ import annotations
@@ -77,6 +77,22 @@ class TestCDDISNavigationExpansion:
         queries = _get_remote_queries(cddis_qf, test_date, "RNX3_BRDC")
         patterns = [q.product.filename.pattern for q in queries]
         assert any("BRDC" in p for p in patterns)
+
+
+class TestBKGNavigationExpansion:
+    def test_wrd_current_day_candidate_is_generated(self, bkg_qf, test_date) -> None:
+        queries = _get_remote_queries(
+            bkg_qf,
+            test_date,
+            "RNX3_BRDC",
+            parameters={"CCC": "WRD", "D": "M"},
+        )
+
+        assert len(queries) == 1
+        query = queries[0]
+        assert query.server.protocol.lower() == "https"
+        assert "WRD_R_20250150000_01D_MN.rnx" in query.product.filename.pattern
+        assert "/IGS/BRDC/" in query.directory.pattern
 
 
 # ---------------------------------------------------------------------------

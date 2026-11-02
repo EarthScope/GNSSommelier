@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Default satellite table (all active GNSS PRNs, variance = 1)
@@ -211,7 +211,8 @@ class SatelliteProducts(BaseModel):
     erp : str, optional
         Earth rotation parameters filename (must end in ``.ERP``).
     quaternions : str, optional
-        Satellite attitude quaternions filename (must end in ``.OBX``).
+        Satellite attitude quaternions filename (must end in ``.OBX``), or
+        ``NONE`` to disable attitude corrections.
     code_phase_bias : str, optional
         Observable-specific signal bias filename (must end in ``.BIA``).
     leo_quaternions : str, optional
@@ -248,7 +249,7 @@ class SatelliteProducts(BaseModel):
     )
     quaternions: str | None = Field(
         default="Default",
-        pattern=r"^Default$|.*\.OBX",
+        pattern=r"^(Default|NONE)$|.*\.OBX",
         description="File name of quaternions file",
     )
     code_phase_bias: str | None = Field(

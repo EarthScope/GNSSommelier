@@ -62,27 +62,3 @@ products:
         version: "1"
         file_templates:
           - "oceanload"
-
-  OROGRAPHY_1X1:
-    description: >
-      Ellipsoidal terrain height grid (1x1) for VMF interpolation.
-
-    formats:
-
-      - format: VIENNA_MAPPING_FUNCTIONS
-        version: "1"
-        constraints:
-          RESOLUTION: "1x1"
-        variant: orography
-
-  OROGRAPHY:
-    description: >
-      Ellipsoidal terrain height grid (VMF1) bundled with PRIDE-PPPAR.
-      Required by PrepareTables regardless of the selected mapping function.
-
-    formats:
-
-      - format: TABLE
-        version: "1"
-        file_templates:
-          - "orography_ell"
