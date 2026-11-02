@@ -44,12 +44,17 @@ def required_antex(resolution):
                     references.add(value.lower().removesuffix(".atx"))
     if not references:
         raise ValueError("Selected products do not identify an ANTEX calibration")
+    unsupported = [r for r in references if not re.fullmatch(r"igs[0-9]{2}(_[0-9]{4})?", r)]
+    if unsupported:
+        raise ValueError(f"Unsupported ANTEX reference: {sorted(unsupported)}")
+    # A bare frame name (e.g. "igs20") is compatible with any revision of that frame.
+    versioned = {r for r in references if "_" in r}
+    references -= {
+        r for r in references if "_" not in r and any(v.startswith(f"{r}_") for v in versioned)
+    }
     if len(references) != 1:
         raise ValueError(f"Conflicting ANTEX references: {sorted(references)}")
-    revision = references.pop()
-    if not re.fullmatch(r"igs[0-9]{2}_[0-9]{4}", revision):
-        raise ValueError(f"Unsupported or unversioned ANTEX reference: {revision}")
-    return revision
+    return references.pop()
 
 
 def resolve_product_antex(resolution, table_dir):
@@ -62,6 +67,17 @@ def resolve_product_antex(resolution, table_dir):
     entry = next((r for r in resolution.resolved if r.spec == "ATTATX"), None)
     if entry is None:
         raise ValueError("ANTEX dependency is absent from processing specification")
+    if "_" not in revision:
+        # Unversioned reference: products only name the frame, so keep the generic ATTATX.
+        current = Path(as_path(entry.local_path)) if entry.local_path else None
+        if current is None or not current.exists() or current.stem.lower() != revision:
+            raise ValueError(f"Products require unversioned ANTEX {revision}, resolved {current}")
+        _validate(current)
+        digest = hashlib.sha256(current.read_bytes()).hexdigest()
+        resolution.diagnostics.append(
+            f"ANTEX {revision} (unversioned in products): sha256={digest}; source={current}"
+        )
+        return resolution
     table_dir = Path(table_dir)
     table_dir.mkdir(parents=True, exist_ok=True)
     target = table_dir / f"{revision}.atx"

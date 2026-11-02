@@ -334,11 +334,12 @@ def test_current_day_is_clipped_to_common_product_coverage(tmp_path: Path, monke
     proc._cli_config = processor_module.PrideCLIConfig()
     today = datetime.datetime.now(datetime.timezone.utc).date()
     rinex = tmp_path / "obs.rnx"
+    ymd = today.strftime("%Y %m %d")
     rinex.write_text(
         "                                                            END OF HEADER\n"
-        "> 2026 09 04 00 00 00.0000000  0  1\nG01 observations\n"
-        "> 2026 09 04 09 55 00.0000000  0  1\nG01 observations\n"
-        "> 2026 09 04 10 00 00.0000000  0  1\nG01 observations\n"
+        f"> {ymd} 00 00 00.0000000  0  1\nG01 observations\n"
+        f"> {ymd} 09 55 00.0000000  0  1\nG01 observations\n"
+        f"> {ymd} 10 00 00.0000000  0  1\nG01 observations\n"
     )
     orbit = tmp_path / "orbit.SP3"
     clock = tmp_path / "clock.CLK"

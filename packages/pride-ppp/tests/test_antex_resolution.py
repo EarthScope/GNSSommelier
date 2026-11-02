@@ -73,3 +73,25 @@ def test_non_ascii_product_comment(tmp_path):
     path = Path(result.resolved[2].local_path)
     path.write_bytes(b" comment \xe4\n" + path.read_bytes())
     assert module.required_antex(result) == "igs20_2425"
+
+
+def test_unversioned_reference_defers_to_versioned(tmp_path):
+    assert module.required_antex(bundle(tmp_path, bias="IGS20")) == "igs20_2425"
+
+
+def test_unversioned_only_keeps_generic_antex(tmp_path, monkeypatch):
+    monkeypatch.setattr(module, "urlopen", lambda *a, **k: pytest.fail("no download expected"))
+    result = bundle(tmp_path, orbit="IGS20", clock="IGS20", bias="IGS20")
+    generic = tmp_path / "igs20.atx"
+    generic.write_text("     1.4            ANTEX VERSION / SYST\n")
+    entry = result.resolved[-1]
+    entry.local_path, entry.status = str(generic), "local"
+    module.resolve_product_antex(result, tmp_path / "table")
+    assert entry.local_path == str(generic)
+    assert "unversioned" in result.diagnostics[-1]
+
+
+def test_unversioned_only_without_generic_antex(tmp_path):
+    result = bundle(tmp_path, orbit="IGS20", clock="IGS20", bias="IGS20")
+    with pytest.raises(ValueError, match="unversioned ANTEX igs20"):
+        module.resolve_product_antex(result, tmp_path / "table")
