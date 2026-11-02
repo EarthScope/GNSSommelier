@@ -50,6 +50,7 @@ from ..defaults import (
 )
 from ..specifications.cli import PrideCLIConfig
 from ..specifications.config import PRIDEPPPFileConfig, SatelliteProducts
+from .antex_resolution import resolve_product_antex
 from .output import get_wrms_from_res, kin_to_kin_position_df
 from .product_validation import product_epoch_bounds, validate_pride_products
 from .rinex import rinex_get_time_range
@@ -649,7 +650,7 @@ class PrideProcessor:
         if centers is not None:
             kwargs["bundle_centers"] = centers
         resolution, _ = self._client.resolve_dependencies(self._dep_spec, date, **kwargs)
-        return resolution
+        return resolve_product_antex(resolution, self._pride_dir / "table")
 
     def _add_product_diagnostics(
         self, rinex_paths: Sequence[Path], resolution: DependencyResolution

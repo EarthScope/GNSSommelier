@@ -413,7 +413,8 @@ class TestValidateKinfile:
         assert processor._validate_kinfile(garbage) is False
 
 
-def test_resolve_forwards_product_download_override(processor: PrideProcessor) -> None:
+def test_resolve_forwards_product_download_override(processor: PrideProcessor, tmp_path) -> None:
+    processor._pride_dir = tmp_path
     processor._client = MagicMock()
     processor._dep_spec = MagicMock()
     processor._override_products_download = True
