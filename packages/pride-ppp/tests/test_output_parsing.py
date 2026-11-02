@@ -153,3 +153,16 @@ class TestGetWrmsFromRes:
         """WRMS in mm — typical GNSS phase residuals are sub-centimetre."""
         df = get_wrms_from_res(res_file)
         assert (df["wrms"] < 1000).all(), "WRMS suspiciously large (> 1000 mm)"
+
+    def test_seconds_equal_sixty_roll_into_next_minute(self, tmp_path: Path):
+        res = tmp_path / "res_rollover.res"
+        res.write_text(
+            "Residuals COMMENT\n"
+            "TIM 2026 8 24 19 9 60.0000000 61276 69000.00\n"
+            "G01 0.0010 0.0000 1.0 1.0 0 45.0 90.0 L1C L2W C1C C2W\n"
+        )
+
+        df = get_wrms_from_res(res)
+
+        assert df.loc[0, "date"] == pd.Timestamp("2026-08-24T19:10:00Z")
+        assert df.loc[0, "wrms"] == pytest.approx(1.0)

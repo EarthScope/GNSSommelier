@@ -61,6 +61,7 @@ class DownloadPipeline:
         date: datetime.datetime,
         *,
         sink_id: str = "local_config",
+        force: bool = False,
     ) -> Path | None | list[Path | None]:
         """Download found resources to the workspace.
 
@@ -79,7 +80,7 @@ class DownloadPipeline:
 
         paths: list[Path | None] = []
         for r in resources:
-            path = self._download_one(r, date, sink_id)
+            path = self._download_one(r, date, sink_id, force=force)
             paths.append(path)
 
         if single:
@@ -91,6 +92,8 @@ class DownloadPipeline:
         resource: FoundResource,
         date: datetime.datetime,
         sink_id: str,
+        *,
+        force: bool = False,
     ) -> Path | None:
         """Download a single resource and write its sidecar lockfile.
 
@@ -102,7 +105,7 @@ class DownloadPipeline:
         Returns:
             Path to the resolved file, or ``None`` on failure.
         """
-        if resource.is_local:
+        if resource.is_local and not force:
             local_path = resource.path
             if local_path and local_path.exists():
                 logger.debug("Already local: %s", local_path)
@@ -121,9 +124,10 @@ class DownloadPipeline:
             local_resource_id=sink_id,
             local_factory=self._planner._workspace,
             date=date,
+            force=force,
         )
         if path is not None:
-            if get_lock_product(path) is None:
+            if force or get_lock_product(path) is None:
                 lock = build_lock_product(sink=path, url=resource.uri, name=resource.product)
                 write_lock_product(lock)
             logger.info("Downloaded %s → %s", resource.product, path)

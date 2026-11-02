@@ -96,13 +96,20 @@ def env(tmp_path: Path):
     }
 
 
-def _download(env, filename: str = "TEST.SP3", checksum: str | None = None) -> Path | None:
+def _download(
+    env,
+    filename: str = "TEST.SP3",
+    checksum: str | None = None,
+    *,
+    force: bool = False,
+) -> Path | None:
     query = _make_query(env["remote_root"], filename, checksum)
     return env["wormhole"].download_one(
         query=query,
         local_resource_id="local_config",
         local_factory=env["workspace"],
         date=TEST_DATE,
+        force=force,
     )
 
 
@@ -190,6 +197,16 @@ class TestCachedFile:
         )
         assert _download(env) == cached
         assert calls == []
+
+    def test_force_redownload_replaces_valid_cache(self, env) -> None:
+        cached = env["sink_dir"] / "TEST.SP3"
+        cached.parent.mkdir(parents=True)
+        cached.write_bytes(b"valid but stale product")
+
+        result = _download(env, force=True)
+
+        assert result == cached
+        assert result.read_bytes() == REMOTE_CONTENT
 
     def test_corrupt_cache_is_evicted_and_redownloaded(self, env) -> None:
         """A cached file whose hash no longer matches its sidecar must be

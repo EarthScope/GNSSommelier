@@ -1,20 +1,22 @@
 id: COD
 name: Center for Orbit Determination in Europe (AIUB)
-website: http://www.aiub.unibe.ch/
+website: https://www.aiub.unibe.ch/
 
 servers:
-  - id: code_ftp
-    name: Primary FTP
-    hostname: "ftp://ftp.aiub.unibe.ch"
-    protocol: ftp
+  - id: code_https
+    name: AIUB CODE Products HTTPS
+    hostname: "https://www.aiub.unibe.ch/download"
+    protocol: https
     auth_required: false
-    description: CODE FTP server at University of Bern
+    description: >
+      CODE product downloads at the University of Bern. Directory listings
+      are provided by AIUB's S3-backed product browser; FTP is retired.
 
 products:
   # ── Orbits ──────────────────────────────────────────────────────
   - id: code_orbit
     product_name: ORBIT
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: CODE precise orbits
     parameters:
@@ -25,12 +27,12 @@ products:
       - {name: PPP, value: MGX}
       - {name: SMP, value: 05M}
       - {name: SMP, value: 15M}
-    directory: {pattern: "CODE/{YYYY}/"}
+    directory: {pattern: "CODE/"}
 
   # ── Clocks ──────────────────────────────────────────────────────
   - id: code_clock
     product_name: CLOCK
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: CODE precise clocks
     parameters:
@@ -40,12 +42,12 @@ products:
       - {name: PPP, value: OPS}
       - {name: SMP, value: 30S}
       - {name: SMP, value: 05M}
-    directory: {pattern: "CODE/{YYYY}/"}
+    directory: {pattern: "CODE/"}
 
   # ── ERP ─────────────────────────────────────────────────────────
   - id: code_erp
     product_name: ERP
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: Earth rotation parameters
     parameters:
@@ -53,12 +55,12 @@ products:
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-    directory: {pattern: "CODE/{YYYY}/"}
+    directory: {pattern: "CODE/"}
 
   # ── Biases ──────────────────────────────────────────────────────
   - id: code_bias
     product_name: BIA
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: Differential code biases (DCB/OSB)
     parameters:
@@ -66,12 +68,12 @@ products:
       - {name: TTT, value: FIN}
       - {name: TTT, value: RAP}
       - {name: PPP, value: OPS}
-    directory: {pattern: "CODE/{YYYY}/"}
+    directory: {pattern: "CODE/"}
 
   # ── Ionosphere ─────────────────────────────────────────────────
   - id: code_gim
     product_name: IONEX
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: Global Ionosphere Maps (CODE is primary producer)
     parameters:
@@ -82,12 +84,12 @@ products:
       - {name: PPP, value: OPS}
       - {name: SMP, value: 01H}
       - {name: SMP, value: 02H}
-    directory: {pattern: "CODE/{YYYY}/"}
+    directory: {pattern: "CODE/"}
 
   # ── SINEX weekly solutions ──────────────────────────────────────
   - id: code_sinex
     product_name: SINEX
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: CODE weekly station coordinate SINEX solutions
     parameters:
@@ -99,7 +101,7 @@ products:
   # ── Troposphere SINEX ──────────────────────────────────────────
   - id: code_trop
     product_name: TROP
-    server_id: code_ftp
+    server_id: code_https
     available: true
     description: CODE troposphere SINEX (zenith total delay + horizontal gradients)
     parameters:

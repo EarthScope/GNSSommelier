@@ -15,7 +15,7 @@ from pathlib import Path
 
 _CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
-# Dependency spec: FIN → RAP → ULT cascade (default processing mode).
+# Dependency spec: FIN → RTS → RAP → ULT cascade (default processing mode).
 PRIDE_PPPAR_SPEC = _CONFIGS_DIR / "dependencies" / "pride_pppar.yaml"
 
 # Dependency spec: FINAL-only products (TTT restricted to [FIN]).
